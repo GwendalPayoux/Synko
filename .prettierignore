@@ -1,0 +1,8 @@
+node_modules/
+.pnpm-store/
+dist/
+data/
+test-results/
+artifacts/
+playwright-report/
+pnpm-lock.yaml

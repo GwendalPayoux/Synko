@@ -1,0 +1,1327 @@
+import React, { useEffect, useState, type FormEvent } from 'react';
+import { createRoot } from 'react-dom/client';
+import {
+  Layers,
+  LayoutDashboard,
+  FolderKanban,
+  CalendarDays,
+  Files,
+  Settings,
+  LogOut,
+  Plus,
+  Search,
+  ChevronRight,
+  ArrowUpRight,
+  ArrowLeft,
+  MoreHorizontal,
+  Grid2X2,
+  List,
+  Star,
+  Menu,
+  X,
+  Moon,
+  Sun,
+  Clock3,
+  Flag,
+  CircleCheck,
+  ArrowRight,
+  Users,
+  ChartNoAxesCombined,
+  GitBranch,
+  Columns3,
+  Bell,
+  SlidersHorizontal,
+} from 'lucide-react';
+import {
+  api,
+  type User,
+  type Project,
+  type Task,
+  type Member,
+  type Activity,
+  today,
+  shiftDate,
+  displayDate,
+  roleLabels,
+} from './domain';
+import { Avatar, Badge, Empty, Field, Modal, Progress } from './components';
+import { Auth } from './auth';
+import { Calendar } from './calendar';
+import { TaskEditor, TaskList, Kanban, Gantt, AddTaskButton } from './tasks';
+import { Documents } from './documents';
+import './styles.css';
+const navigation = [
+  { id: 'dashboard', label: 'Mon espace', icon: LayoutDashboard },
+  { id: 'projects', label: 'Projets', icon: FolderKanban },
+  { id: 'calendar', label: 'Calendrier', icon: CalendarDays },
+  { id: 'documents', label: 'Documents', icon: Files },
+];
+function App() {
+  const [user, setUser] = useState<User | null>(null),
+    [boot, setBoot] = useState(true),
+    [page, setPage] = useState('dashboard'),
+    [projects, setProjects] = useState<Project[]>([]),
+    [personal, setPersonal] = useState<Task[]>([]),
+    [projectId, setProjectId] = useState<string | null>(null),
+    [tasks, setTasks] = useState<Task[]>([]),
+    [members, setMembers] = useState<Member[]>([]),
+    [orgMembers, setOrgMembers] = useState<Member[]>([]),
+    [activity, setActivity] = useState<Activity[]>([]),
+    [tab, setTab] = useState('gantt'),
+    [error, setError] = useState(''),
+    [loading, setLoading] = useState(false),
+    [creating, setCreating] = useState(false),
+    [editing, setEditing] = useState<{ project: Project; task?: Task } | null>(null),
+    [query, setQuery] = useState(''),
+    [filter, setFilter] = useState('all'),
+    [layout, setLayout] = useState('grid'),
+    [sort, setSort] = useState('recent'),
+    [mobile, setMobile] = useState(false),
+    [theme, setTheme] = useState(localStorage.getItem('synko:theme') || 'light'),
+    [favorites, setFavorites] = useState<string[]>([]),
+    [newMember, setNewMember] = useState(''),
+    [invite, setInvite] = useState(false),
+    [inviteUrl, setInviteUrl] = useState(''),
+    [saveState, setSaveState] = useState(''),
+    [notifications, setNotifications] = useState(false),
+    [taskFilter, setTaskFilter] = useState('all');
+  const project = projects.find((p) => p.id === projectId);
+  const canCreate = user?.permissions.includes('project:create');
+  const full =
+    !!user &&
+    !!project &&
+    (user.role === 'org_admin' ||
+      (user.role === 'project_manager' && project.owner_id === user.id));
+  const canTask = (t: Task) =>
+    !!user &&
+    (user.role === 'org_admin' ||
+      (user.role === 'project_manager' &&
+        projects.find((p) => p.id === t.project_id)?.owner_id === user.id) ||
+      (user.role === 'contributor' && t.assignee_id === user.id));
+  async function refresh() {
+    const [p, t, m] = await Promise.all([
+      api<Project[]>('/projects'),
+      api<Task[]>('/tasks'),
+      api<Member[]>('/members'),
+    ]);
+    setProjects(p);
+    setPersonal(t);
+    setOrgMembers(m);
+  }
+  async function refreshProject(id: string) {
+    const [t, m, a] = await Promise.all([
+      api<Task[]>(`/projects/${id}/tasks`),
+      api<Member[]>(`/projects/${id}/members`),
+      api<Activity[]>(`/projects/${id}/activity`),
+    ]);
+    setTasks(t);
+    setMembers(m);
+    setActivity(a);
+  }
+  async function login() {
+    setBoot(true);
+    try {
+      const u = await api<User>('/me');
+      setUser(u);
+      setFavorites(JSON.parse(localStorage.getItem('synko:favorites:' + u.id) || '[]'));
+      await refresh();
+    } catch (e) {
+      if ((e as Error).message !== 'Veuillez vous connecter.') setError((e as Error).message);
+    } finally {
+      setBoot(false);
+    }
+  }
+  useEffect(() => {
+    login();
+  }, []);
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    localStorage.setItem('synko:theme', theme);
+  }, [theme]);
+  useEffect(() => {
+    if (!projectId) return;
+    setLoading(true);
+    refreshProject(projectId)
+      .catch((e) => setError(e.message))
+      .finally(() => setLoading(false));
+  }, [projectId]);
+  function go(id: string) {
+    setPage(id);
+    setProjectId(null);
+    setMobile(false);
+    setQuery('');
+  }
+  function openProject(p: Project) {
+    setTasks([]);
+    setMembers([]);
+    setActivity([]);
+    setProjectId(p.id);
+    setPage('projects');
+    setTab('gantt');
+    setQuery('');
+  }
+  function favorite(id: string) {
+    const next = favorites.includes(id) ? favorites.filter((i) => i !== id) : [...favorites, id];
+    setFavorites(next);
+    localStorage.setItem('synko:favorites:' + user!.id, JSON.stringify(next));
+  }
+  async function saved() {
+    await refresh();
+    if (projectId) await refreshProject(projectId);
+    setSaveState('Modifications enregistrées');
+  }
+  async function patch(t: Task, changes: Partial<Task>) {
+    setSaveState('Enregistrement…');
+    try {
+      await api(`/projects/${t.project_id}/tasks/${t.id}`, 'PATCH', {
+        ...changes,
+        revision: t.revision,
+      });
+      await saved();
+    } catch (e) {
+      setError((e as Error).message);
+      setSaveState('Échec de l’enregistrement');
+      await refresh();
+      if (projectId) await refreshProject(projectId);
+    }
+  }
+  async function openTask(t: Task) {
+    const p = projects.find((p) => p.id === t.project_id);
+    if (!p) return;
+    try {
+      const m = await api<Member[]>(`/projects/${p.id}/members`);
+      setMembers(m);
+      setEditing({ project: p, task: t });
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+  async function logout(all = false) {
+    try {
+      await api(all ? '/auth/logout-all' : '/auth/logout', 'POST', {});
+      setUser(null);
+      setProjects([]);
+      setPersonal([]);
+      setProjectId(null);
+      setTasks([]);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+  async function createProject(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const form = e.currentTarget;
+    const b = Object.fromEntries(new FormData(form));
+    const button = form.querySelector('button[type="submit"]') as HTMLButtonElement;
+    button.disabled = true;
+    try {
+      const p = await api<{ id: string }>('/projects', 'POST', {
+        ...b,
+        budget_cents: Math.round(Number(b.budget || 0) * 100),
+      });
+      await refresh();
+      setCreating(false);
+      setProjectId(p.id);
+      setPage('projects');
+      setTab('gantt');
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      button.disabled = false;
+    }
+  }
+  async function addMember() {
+    try {
+      await api(`/projects/${projectId}/members`, 'POST', { user_id: newMember });
+      await saved();
+      setNewMember('');
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+  async function invitation(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    try {
+      const result = await api<{ url: string }>(
+        '/invitations',
+        'POST',
+        Object.fromEntries(new FormData(e.currentTarget)),
+      );
+      setInviteUrl(result.url);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+  const overdue = personal.filter((t) => t.end_date < today() && t.status !== 'done');
+  const upcoming = personal.filter(
+    (t) => t.end_date >= today() && t.end_date <= shiftDate(today(), 7) && t.status !== 'done',
+  );
+  const active = projects.filter((p) => p.status === 'active');
+  if (boot)
+    return (
+      <div className="boot">
+        <Layers size={32} />
+        <strong>synko</strong>
+        <span>Ouverture de votre espace…</span>
+      </div>
+    );
+  if (!user)
+    return (
+      <>
+        <Auth onLogin={login} />
+        {error && (
+          <div className="toast error" role="alert">
+            {error}
+            <button onClick={() => setError('')} aria-label="Fermer">
+              <X size={16} />
+            </button>
+          </div>
+        )}
+      </>
+    );
+  const shownProjects = projects
+    .filter(
+      (p) =>
+        p.name.toLowerCase().includes(query.toLowerCase()) &&
+        (filter === 'all' ||
+          (filter === 'favorites' && favorites.includes(p.id)) ||
+          p.status === filter),
+    )
+    .sort((a, b) =>
+      sort === 'name'
+        ? a.name.localeCompare(b.name)
+        : sort === 'deadline'
+          ? a.end_date.localeCompare(b.end_date)
+          : 0,
+    );
+  const shownTasks = tasks.filter(
+    (t) =>
+      t.title.toLowerCase().includes(query.toLowerCase()) &&
+      (taskFilter === 'all' || t.status === taskFilter),
+  );
+  return (
+    <div className="app">
+      <aside className={'sidebar ' + (mobile ? 'open' : '')}>
+        <div className="brand">
+          <span className="brand-mark">
+            <Layers size={23} />
+          </span>
+          synko<span className="by">by Synapt</span>
+          <button
+            className="mobile-only icon-button"
+            aria-label="Fermer le menu"
+            onClick={() => setMobile(false)}
+          >
+            <X size={20} />
+          </button>
+        </div>
+        <div className="workspace">
+          <span className="org-icon">{user.org_name[0].toUpperCase()}</span>
+          <div>
+            <strong>{user.org_name}</strong>
+            <small>Espace entreprise</small>
+          </div>
+          <span className="workspace-dot" />
+        </div>
+        <div className="nav-caption">ESPACE DE TRAVAIL</div>
+        <nav>
+          {navigation.map((item) => (
+            <button
+              key={item.id}
+              className={page === item.id ? 'active' : ''}
+              onClick={() => go(item.id)}
+            >
+              <item.icon size={19} />
+              {item.label}
+              {item.id === 'projects' && <span className="nav-count">{projects.length}</span>}
+            </button>
+          ))}
+        </nav>
+        <div className="sidebar-project-head">
+          <span className="nav-caption">MES FAVORIS</span>
+          {canCreate && (
+            <button
+              className="icon-button"
+              aria-label="Créer un projet"
+              onClick={() => setCreating(true)}
+            >
+              <Plus size={15} />
+            </button>
+          )}
+        </div>
+        <div className="favorite-projects">
+          {projects
+            .filter((p) => favorites.includes(p.id))
+            .map((p) => (
+              <button key={p.id} onClick={() => openProject(p)}>
+                <i className={'project-dot ' + p.color} />
+                <span>{p.name}</span>
+              </button>
+            ))}
+          {!favorites.length && (
+            <p>
+              Retrouvez ici les projets
+              <br />
+              que vous marquez d’une étoile.
+            </p>
+          )}
+        </div>
+        <div className="sidebar-bottom">
+          <div className="workspace-tip">
+            <span className="tiny-eyebrow">PLUS CLAIR, ENSEMBLE.</span>
+            <p>
+              Un projet bien organisé,
+              <br />
+              c’est une équipe qui avance.
+            </p>
+            <GitBranch size={24} />
+          </div>
+          <button
+            className={page === 'settings' ? 'active settings-link' : 'settings-link'}
+            onClick={() => go('settings')}
+          >
+            <Settings size={18} />
+            Paramètres
+          </button>
+          <button className="profile" onClick={() => go('profile')}>
+            <Avatar name={user.name} />
+            <div>
+              <strong>{user.name}</strong>
+              <small>{roleLabels[user.role]}</small>
+            </div>
+            <ChevronRight size={15} />
+          </button>
+        </div>
+      </aside>
+      {mobile && <div className="mobile-overlay" onClick={() => setMobile(false)} />}
+      <div className="app-main">
+        <header className="topbar">
+          <div className="breadcrumbs">
+            <button
+              className="mobile-only icon-button"
+              aria-label="Ouvrir le menu"
+              onClick={() => setMobile(true)}
+            >
+              <Menu size={20} />
+            </button>
+            <span>{user.org_name}</span>
+            <ChevronRight size={14} />
+            <strong>
+              {project
+                ? project.name
+                : page === 'dashboard'
+                  ? 'Mon espace'
+                  : page === 'profile'
+                    ? 'Mon profil'
+                    : page === 'settings'
+                      ? 'Paramètres'
+                      : navigation.find((n) => n.id === page)?.label}
+            </strong>
+          </div>
+          <div className="topbar-actions">
+            <span className="save-state" role="status">
+              {saveState}
+            </span>
+            <button
+              className="icon-button"
+              aria-label={theme === 'light' ? 'Activer le mode sombre' : 'Activer le mode clair'}
+              onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}
+            >
+              {theme === 'light' ? <Moon size={18} /> : <Sun size={18} />}
+            </button>
+            <button
+              className="icon-button notification-button"
+              aria-label="Échéances à surveiller"
+              onClick={() => setNotifications(!notifications)}
+            >
+              <Bell size={18} />
+              {overdue.length > 0 && <i />}
+            </button>
+            <Avatar name={user.name} small />
+          </div>
+        </header>
+        {notifications && (
+          <div className="notification-popover panel">
+            <h3>Échéances à surveiller</h3>
+            <p className="muted">Alertes calculées à partir de vos tâches.</p>
+            {[...overdue, ...upcoming].slice(0, 6).map((t) => (
+              <button
+                key={t.id}
+                onClick={() => {
+                  openTask(t);
+                  setNotifications(false);
+                }}
+              >
+                <span>{t.title}</span>
+                <small>{displayDate(t.end_date)}</small>
+              </button>
+            ))}
+            {!overdue.length && !upcoming.length && <p>Aucune échéance urgente.</p>}
+            <small className="muted">
+              Centre de notifications avec lecture : prévu ultérieurement.
+            </small>
+          </div>
+        )}
+        <main>
+          {page === 'dashboard' && !project && (
+            <>
+              <div className="page-title">
+                <div>
+                  <div className="eyebrow">VOTRE JOURNÉE, EN UN REGARD</div>
+                  <h1>
+                    Bonjour, {user.name.split(' ')[0]}
+                    <span className="greeting-dot">.</span>
+                  </h1>
+                  <p>Gardez le cap sur ce qui compte aujourd’hui.</p>
+                </div>
+                <span className="date-pill">
+                  <CalendarDays size={16} />
+                  {new Date().toLocaleDateString('fr-FR', {
+                    weekday: 'long',
+                    day: 'numeric',
+                    month: 'long',
+                  })}
+                </span>
+              </div>
+              <div className="dashboard-layout">
+                <Calendar tasks={personal} onTask={openTask} />
+                <aside className="dashboard-aside">
+                  <section className="focus-card">
+                    <span className="eyebrow">VOTRE CAP CETTE SEMAINE</span>
+                    <h2>
+                      Chaque avancée
+                      <br />
+                      compte.
+                    </h2>
+                    <p>
+                      {personal.length
+                        ? 'Retrouvez vos prochaines échéances et faites avancer vos projets.'
+                        : 'Créez votre premier projet et donnez une direction à votre équipe.'}
+                    </p>
+                    <button onClick={() => (canCreate ? setCreating(true) : go('projects'))}>
+                      {canCreate ? 'Créer un projet' : 'Voir mes projets'}
+                      <ArrowUpRight size={18} />
+                    </button>
+                    <div className="focus-decoration">
+                      <span />
+                      <span />
+                      <span />
+                    </div>
+                  </section>
+                  <section className="panel compact-stats">
+                    <div>
+                      <span className="stat-icon clay">
+                        <Clock3 size={18} />
+                      </span>
+                      <span>En retard</span>
+                      <strong>{overdue.length}</strong>
+                    </div>
+                    <div>
+                      <span className="stat-icon sage">
+                        <Flag size={18} />
+                      </span>
+                      <span>Cette semaine</span>
+                      <strong>{upcoming.length}</strong>
+                    </div>
+                    <div>
+                      <span className="stat-icon blue">
+                        <FolderKanban size={18} />
+                      </span>
+                      <span>Projets actifs</span>
+                      <strong>{active.length}</strong>
+                    </div>
+                    <div>
+                      <span className="stat-icon violet">
+                        <CircleCheck size={18} />
+                      </span>
+                      <span>Tâches terminées</span>
+                      <strong>{personal.filter((t) => t.status === 'done').length}</strong>
+                    </div>
+                  </section>
+                  <section className="mini-note">
+                    <span className="status-indicator" />
+                    <span>
+                      Votre espace est à jour.
+                      <br />
+                      <small>Des données réelles, partagées entre les vues.</small>
+                    </span>
+                  </section>
+                </aside>
+              </div>
+              <section className="panel personal-tasks">
+                <div className="panel-head">
+                  <div>
+                    <h3>Mes tâches</h3>
+                    <span className="muted">L’essentiel pour avancer</span>
+                  </div>
+                  <span className="count">{personal.length}</span>
+                </div>
+                {personal.length ? (
+                  <TaskList
+                    tasks={personal}
+                    onTask={openTask}
+                    onStatus={(t, s) =>
+                      patch(t, {
+                        status: s,
+                        progress: s === 'done' ? 100 : t.progress === 100 ? 0 : t.progress,
+                      })
+                    }
+                    canEdit={canTask}
+                    showProject
+                  />
+                ) : (
+                  <Empty
+                    title="Vous avez le champ libre"
+                    description="Les tâches qui vous sont affectées apparaîtront ici, avec leurs échéances et leur avancement."
+                  />
+                )}
+              </section>
+              <div className="section-heading">
+                <h2>Vos projets en cours</h2>
+                <button className="link" onClick={() => go('projects')}>
+                  Tous les projets
+                  <ArrowRight size={16} />
+                </button>
+              </div>
+              <div className="project-grid">
+                {active.slice(0, 3).map((p) => (
+                  <ProjectCard
+                    key={p.id}
+                    project={p}
+                    favorite={favorites.includes(p.id)}
+                    onFavorite={() => favorite(p.id)}
+                    onOpen={() => openProject(p)}
+                  />
+                ))}
+                {!active.length && (
+                  <div className="panel full-span">
+                    <Empty
+                      title="Votre prochain projet vous attend"
+                      description="Un objectif, une équipe, un planning : commencez simplement."
+                      action={canCreate ? () => setCreating(true) : undefined}
+                      label="Créer mon premier projet"
+                    />
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+          {page === 'projects' && !project && (
+            <>
+              <div className="page-title">
+                <div>
+                  <div className="eyebrow">UNE VISION COMMUNE</div>
+                  <h1>
+                    Les projets<span className="greeting-dot">.</span>
+                  </h1>
+                  <p>De l’idée au résultat, gardez une longueur d’avance.</p>
+                </div>
+                {canCreate && (
+                  <button className="primary" onClick={() => setCreating(true)}>
+                    <Plus size={18} />
+                    Nouveau projet
+                  </button>
+                )}
+              </div>
+              <div className="portfolio-summary">
+                <span>
+                  <strong>{projects.length}</strong>projets au total
+                </span>
+                <span>
+                  <i className="project-dot sage" />
+                  <strong>{active.length}</strong>en cours
+                </span>
+                <span>
+                  <i className="project-dot blue" />
+                  <strong>{projects.filter((p) => p.status === 'completed').length}</strong>clôturés
+                </span>
+              </div>
+              <div className="toolbar">
+                <div className="search-input">
+                  <Search size={17} />
+                  <input
+                    aria-label="Rechercher un projet"
+                    placeholder="Rechercher un projet…"
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                  />
+                </div>
+                <div className="filter-tabs">
+                  {[
+                    ['all', 'Tous les projets'],
+                    ['active', 'En cours'],
+                    ['favorites', 'Favoris'],
+                  ].map(([id, label]) => (
+                    <button
+                      className={filter === id ? 'selected' : ''}
+                      key={id}
+                      onClick={() => setFilter(id)}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <div className="spacer" />
+                <select
+                  aria-label="Trier les projets"
+                  value={sort}
+                  onChange={(e) => setSort(e.target.value)}
+                >
+                  <option value="recent">Plus récents</option>
+                  <option value="name">Nom</option>
+                  <option value="deadline">Échéance</option>
+                </select>
+                <div className="segmented">
+                  <button
+                    className={layout === 'grid' ? 'selected' : ''}
+                    aria-label="Vue cartes"
+                    onClick={() => setLayout('grid')}
+                  >
+                    <Grid2X2 size={16} />
+                  </button>
+                  <button
+                    className={layout === 'list' ? 'selected' : ''}
+                    aria-label="Vue liste"
+                    onClick={() => setLayout('list')}
+                  >
+                    <List size={16} />
+                  </button>
+                </div>
+              </div>
+              <div className={'project-grid ' + (layout === 'list' ? 'project-list' : '')}>
+                {shownProjects.map((p) => (
+                  <ProjectCard
+                    key={p.id}
+                    project={p}
+                    favorite={favorites.includes(p.id)}
+                    onFavorite={() => favorite(p.id)}
+                    onOpen={() => openProject(p)}
+                  />
+                ))}
+                {canCreate && (
+                  <button className="create-project-card" onClick={() => setCreating(true)}>
+                    <span>
+                      <Plus size={24} />
+                    </span>
+                    <strong>Une nouvelle ambition ?</strong>
+                    <p>Créez un projet et donnez-lui vie.</p>
+                    <span className="link">
+                      Nouveau projet
+                      <ArrowRight size={15} />
+                    </span>
+                  </button>
+                )}
+              </div>
+              {!shownProjects.length && projects.length > 0 && (
+                <Empty
+                  title="Aucun projet trouvé"
+                  description="Essayez un autre mot-clé ou modifiez vos filtres."
+                />
+              )}
+            </>
+          )}
+          {project && (
+            <>
+              <button className="back-link" onClick={() => go('projects')}>
+                <ArrowLeft size={15} />
+                Tous les projets
+              </button>
+              <div className="page-title project-heading">
+                <div className={'project-emblem ' + project.color}>
+                  <FolderKanban size={28} />
+                </div>
+                <div>
+                  <div className="project-heading-meta">
+                    <span className="eyebrow">ESPACE PROJET</span>
+                    <Badge status={project.status} />
+                  </div>
+                  <h1>{project.name}</h1>
+                  <p>{project.description || 'Un objectif commun. Une équipe pour le réaliser.'}</p>
+                </div>
+                <div className="spacer" />
+                {full && <AddTaskButton onClick={() => setEditing({ project })} />}
+              </div>
+              <div className="project-meta">
+                <span>
+                  <CalendarDays size={15} />
+                  {displayDate(project.start_date)} — {displayDate(project.end_date)}
+                </span>
+                <span>
+                  <Users size={15} />
+                  {members.length} membre{members.length > 1 ? 's' : ''}
+                </span>
+                <span className="project-progress">
+                  <Progress value={project.progress} />
+                  {project.progress}%
+                </span>
+              </div>
+              <div className="project-tabs">
+                {[
+                  { id: 'gantt', label: 'Planning', icon: GitBranch },
+                  { id: 'kanban', label: 'Kanban', icon: Columns3 },
+                  { id: 'list', label: 'Liste', icon: List },
+                  { id: 'documents', label: 'Documents', icon: Files },
+                  { id: 'team', label: 'Équipe', icon: Users },
+                  { id: 'overview', label: 'Vue d’ensemble', icon: ChartNoAxesCombined },
+                  { id: 'settings', label: 'Paramètres', icon: Settings },
+                ].map((t) => (
+                  <button
+                    key={t.id}
+                    className={tab === t.id ? 'active' : ''}
+                    onClick={() => {
+                      setTab(t.id);
+                      setQuery('');
+                    }}
+                  >
+                    <t.icon size={17} />
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+              {loading ? (
+                <div className="loading" role="status">
+                  Chargement du projet…
+                </div>
+              ) : (
+                <>
+                  {['gantt', 'kanban', 'list'].includes(tab) && (
+                    <div className="toolbar task-toolbar">
+                      <div className="search-input">
+                        <Search size={17} />
+                        <input
+                          aria-label="Rechercher une tâche"
+                          placeholder="Rechercher une tâche…"
+                          value={query}
+                          onChange={(e) => setQuery(e.target.value)}
+                        />
+                      </div>
+                      <span className="muted">{tasks.length} tâches et jalons</span>
+                      <div className="spacer" />
+                      <SlidersHorizontal size={16} />
+                      <select
+                        aria-label="Filtrer les tâches par statut"
+                        value={taskFilter}
+                        onChange={(e) => setTaskFilter(e.target.value)}
+                      >
+                        <option value="all">Tous les statuts</option>
+                        <option value="todo">À faire</option>
+                        <option value="doing">En cours</option>
+                        <option value="review">À valider</option>
+                        <option value="done">Terminées</option>
+                      </select>
+                    </div>
+                  )}
+                  {tab === 'gantt' && (
+                    <Gantt
+                      tasks={shownTasks}
+                      project={project}
+                      onTask={openTask}
+                      canEdit={() => full}
+                      onDates={(t, start, end) => patch(t, { start_date: start, end_date: end })}
+                    />
+                  )}
+                  {tab === 'kanban' && (
+                    <Kanban
+                      tasks={shownTasks}
+                      onTask={openTask}
+                      canEdit={canTask}
+                      onStatus={(t, s) =>
+                        patch(t, {
+                          status: s,
+                          progress: s === 'done' ? 100 : t.progress === 100 ? 0 : t.progress,
+                        })
+                      }
+                    />
+                  )}
+                  {tab === 'list' && (
+                    <section className="panel">
+                      {shownTasks.length ? (
+                        <TaskList
+                          tasks={shownTasks}
+                          onTask={openTask}
+                          canEdit={canTask}
+                          onStatus={(t, s) =>
+                            patch(t, {
+                              status: s,
+                              progress: s === 'done' ? 100 : t.progress === 100 ? 0 : t.progress,
+                            })
+                          }
+                        />
+                      ) : (
+                        <Empty
+                          title="Rien à afficher pour le moment"
+                          description="Ajoutez une tâche ou ajustez vos filtres."
+                        />
+                      )}
+                    </section>
+                  )}
+                  {tab === 'documents' && (
+                    <Documents
+                      project={project}
+                      canWrite={user.permissions.includes('document:write')}
+                      onError={setError}
+                    />
+                  )}
+                  {tab === 'team' && (
+                    <section className="panel">
+                      <div className="panel-head">
+                        <div>
+                          <h3>Une équipe, un objectif</h3>
+                          <span className="muted">Les membres qui peuvent accéder à ce projet</span>
+                        </div>
+                      </div>
+                      <div className="member-grid">
+                        {members.map((m) => (
+                          <article key={m.id}>
+                            <Avatar name={m.name} />
+                            <strong>{m.name}</strong>
+                            <span>{roleLabels[m.role]}</span>
+                            <small>{m.email}</small>
+                          </article>
+                        ))}
+                      </div>
+                      {full && (
+                        <div className="add-member">
+                          <select
+                            aria-label="Membre à ajouter"
+                            value={newMember}
+                            onChange={(e) => setNewMember(e.target.value)}
+                          >
+                            <option value="">Choisir un membre de l’entreprise</option>
+                            {orgMembers
+                              .filter((m) => !members.some((pm) => pm.id === m.id))
+                              .map((m) => (
+                                <option key={m.id} value={m.id}>
+                                  {m.name}
+                                </option>
+                              ))}
+                          </select>
+                          <button className="secondary" disabled={!newMember} onClick={addMember}>
+                            <Plus size={16} />
+                            Ajouter au projet
+                          </button>
+                        </div>
+                      )}
+                    </section>
+                  )}
+                  {tab === 'overview' && (
+                    <div className="overview-grid">
+                      <section className="panel">
+                        <div className="panel-head">
+                          <h3>Avancement</h3>
+                        </div>
+                        <div className="overview-progress">
+                          <strong>
+                            {project.progress}
+                            <small>%</small>
+                          </strong>
+                          <Progress value={project.progress} />
+                          <p>
+                            {tasks.filter((t) => t.status === 'done').length} tâches terminées sur{' '}
+                            {tasks.length}
+                          </p>
+                        </div>
+                        <div className="budget-note">
+                          <h4>Budget initial</h4>
+                          <strong>
+                            {new Intl.NumberFormat('fr-FR', {
+                              style: 'currency',
+                              currency: 'EUR',
+                            }).format(project.budget_cents / 100)}
+                          </strong>
+                          <p className="muted">
+                            Le suivi des dépenses et des engagements est prévu dans une prochaine
+                            étape.
+                          </p>
+                        </div>
+                      </section>
+                      <section className="panel">
+                        <div className="panel-head">
+                          <h3>Activité du projet</h3>
+                        </div>
+                        <div className="activity-list">
+                          {activity.map((a) => (
+                            <article key={a.id}>
+                              <span className="activity-dot" />
+                              <div>
+                                <strong>{a.action}</strong>
+                                <p>
+                                  {a.actor_name} · {new Date(a.created_at).toLocaleString('fr-FR')}
+                                </p>
+                              </div>
+                            </article>
+                          ))}
+                        </div>
+                      </section>
+                    </div>
+                  )}
+                  {tab === 'settings' && (
+                    <section className="panel settings-panel">
+                      <h3>Cycle de vie du projet</h3>
+                      <p className="muted">Mettez le projet en pause ou marquez sa clôture.</p>
+                      <Field label="Statut du projet">
+                        <select
+                          disabled={!full}
+                          value={project.status}
+                          onChange={async (e) => {
+                            try {
+                              await api(`/projects/${project.id}`, 'PATCH', {
+                                status: e.target.value,
+                              });
+                              await saved();
+                            } catch (e) {
+                              setError((e as Error).message);
+                            }
+                          }}
+                        >
+                          <option value="active">En cours</option>
+                          <option value="paused">En pause</option>
+                          <option value="completed">Clôturé</option>
+                        </select>
+                      </Field>
+                      <p>Responsable : {project.owner_name}</p>
+                      <p className="muted">
+                        L’édition des informations générales et l’archivage seront ajoutés
+                        ultérieurement.
+                      </p>
+                    </section>
+                  )}
+                </>
+              )}
+            </>
+          )}
+          {page === 'calendar' && !project && (
+            <>
+              <div className="page-title">
+                <div>
+                  <div className="eyebrow">GARDEZ LE RYTHME</div>
+                  <h1>
+                    Votre calendrier<span className="greeting-dot">.</span>
+                  </h1>
+                  <p>Toutes vos échéances affectées, à travers vos projets.</p>
+                </div>
+              </div>
+              <Calendar tasks={personal} onTask={openTask} large />
+            </>
+          )}
+          {page === 'documents' && !project && (
+            <>
+              <div className="page-title">
+                <div>
+                  <div className="eyebrow">L’ESSENTIEL, CENTRALISÉ</div>
+                  <h1>
+                    Les documents<span className="greeting-dot">.</span>
+                  </h1>
+                  <p>Ouvrez un projet pour accéder à ses fichiers et à leurs versions.</p>
+                </div>
+              </div>
+              <div className="document-projects">
+                {projects.map((p) => (
+                  <button
+                    className="panel"
+                    key={p.id}
+                    onClick={() => {
+                      openProject(p);
+                      setTab('documents');
+                    }}
+                  >
+                    <span className={'project-emblem ' + p.color}>
+                      <Files size={23} />
+                    </span>
+                    <div>
+                      <strong>{p.name}</strong>
+                      <p>Consulter les documents</p>
+                    </div>
+                    <ArrowUpRight size={19} />
+                  </button>
+                ))}
+              </div>
+              {!projects.length && (
+                <Empty
+                  title="Vos documents suivent vos projets"
+                  description="Créez un projet pour commencer à centraliser vos fichiers."
+                />
+              )}
+            </>
+          )}
+          {(page === 'settings' || page === 'profile') && !project && (
+            <>
+              <div className="page-title">
+                <div>
+                  <div className="eyebrow">VOTRE ESPACE, VOS REPÈRES</div>
+                  <h1>
+                    {page === 'profile' ? 'Mon profil' : 'Paramètres'}
+                    <span className="greeting-dot">.</span>
+                  </h1>
+                  <p>
+                    {user.org_name} · {roleLabels[user.role]}
+                  </p>
+                </div>
+              </div>
+              <div className="overview-grid">
+                <section className="panel settings-panel">
+                  <h3>Informations personnelles</h3>
+                  <form
+                    onSubmit={async (e) => {
+                      e.preventDefault();
+                      try {
+                        await api(
+                          '/me',
+                          'PATCH',
+                          Object.fromEntries(new FormData(e.currentTarget)),
+                        );
+                        setUser(await api<User>('/me'));
+                        setSaveState('Profil enregistré');
+                      } catch (e) {
+                        setError((e as Error).message);
+                      }
+                    }}
+                  >
+                    <Field label="Nom complet">
+                      <input name="name" defaultValue={user.name} required maxLength={100} />
+                    </Field>
+                    <Field label="Adresse e-mail">
+                      <input value={user.email} disabled />
+                    </Field>
+                    <button className="primary">Enregistrer</button>
+                  </form>
+                  <hr />
+                  <h3>Sessions</h3>
+                  <p className="muted">Les sessions expirent automatiquement après 7 jours.</p>
+                  <button className="secondary" onClick={() => logout()}>
+                    <LogOut size={16} />
+                    Se déconnecter
+                  </button>
+                  <button className="link danger" onClick={() => logout(true)}>
+                    Fermer toutes mes sessions
+                  </button>
+                </section>
+                <section className="panel settings-panel">
+                  <div className="section-heading">
+                    <h3>Votre entreprise</h3>
+                    {user.role === 'org_admin' && (
+                      <button
+                        className="secondary"
+                        onClick={() => {
+                          setInvite(true);
+                          setInviteUrl('');
+                        }}
+                      >
+                        <Plus size={16} />
+                        Inviter
+                      </button>
+                    )}
+                  </div>
+                  {orgMembers.map((m) => (
+                    <div className="org-member" key={m.id}>
+                      <Avatar name={m.name} small />
+                      <div>
+                        <strong>{m.name}</strong>
+                        <small>{roleLabels[m.role]}</small>
+                      </div>
+                    </div>
+                  ))}
+                  <hr />
+                  <h3>Services connectés</h3>
+                  <p className="muted">
+                    IA, e-mail transactionnel, Google Calendar et Outlook : non configurés. Aucune
+                    donnée n’est envoyée à ces services.
+                  </p>
+                </section>
+              </div>
+            </>
+          )}
+          <footer className="app-footer">
+            <span>
+              synko <small>by Synapt</small>
+            </span>
+            <span>Un espace commun. Des projets qui avancent.</span>
+          </footer>
+        </main>
+      </div>
+      {error && (
+        <div className="toast error" role="alert">
+          <span>{error}</span>
+          <button onClick={() => setError('')} aria-label="Fermer le message">
+            <X size={18} />
+          </button>
+        </div>
+      )}
+      {creating && (
+        <Modal title="Un nouveau projet" onClose={() => setCreating(false)}>
+          <p className="modal-intro">Posez les bases. Le reste se construit ensemble.</p>
+          <form onSubmit={createProject}>
+            <Field label="Nom du projet">
+              <input
+                name="name"
+                placeholder="Ex. Refonte de l’espace client"
+                required
+                maxLength={160}
+                autoFocus
+              />
+            </Field>
+            <Field label="Description">
+              <textarea
+                name="description"
+                placeholder="Quelle ambition porte ce projet ?"
+                rows={3}
+                maxLength={2000}
+              />
+            </Field>
+            <div className="form-row">
+              <Field label="Date de début">
+                <input name="start_date" type="date" defaultValue={today()} required />
+              </Field>
+              <Field label="Échéance prévisionnelle">
+                <input name="end_date" type="date" defaultValue={shiftDate(today(), 30)} required />
+              </Field>
+            </div>
+            <div className="form-row">
+              <Field label="Budget initial (€)">
+                <input
+                  name="budget"
+                  type="number"
+                  min={0}
+                  max={1000000000}
+                  step="0.01"
+                  defaultValue={0}
+                />
+              </Field>
+              <Field label="Couleur du projet">
+                <select name="color">
+                  <option value="sage">Sauge</option>
+                  <option value="blue">Bleu ardoise</option>
+                  <option value="clay">Terracotta</option>
+                  <option value="violet">Lavande</option>
+                </select>
+              </Field>
+            </div>
+            <div className="creation-note">
+              <Avatar name={user.name} small />
+              <span>
+                Vous serez responsable de ce projet.
+                <br />
+                <small>Entreprise : {user.org_name}</small>
+              </span>
+            </div>
+            <div className="modal-footer">
+              <button type="button" className="secondary" onClick={() => setCreating(false)}>
+                Annuler
+              </button>
+              <button type="submit" className="primary">
+                Créer le projet
+                <ArrowRight size={16} />
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+      {editing && (
+        <TaskEditor
+          task={editing.task}
+          project={editing.project}
+          members={members}
+          user={user}
+          onClose={() => setEditing(null)}
+          onSaved={saved}
+          onError={setError}
+        />
+      )}
+      {invite && (
+        <Modal title="Inviter un collaborateur" onClose={() => setInvite(false)}>
+          {inviteUrl ? (
+            <div className="invite-result">
+              <h3>Votre lien d’invitation est prêt</h3>
+              <p>
+                Transmettez ce lien à la personne invitée. Il est valable 72 heures, pour l’adresse
+                indiquée.
+              </p>
+              <textarea readOnly value={inviteUrl} aria-label="Lien d’invitation" rows={4} />
+              <p className="muted">Aucun e-mail automatique n’a été envoyé.</p>
+            </div>
+          ) : (
+            <form onSubmit={invitation}>
+              <Field label="Adresse e-mail">
+                <input name="email" type="email" required />
+              </Field>
+              <Field label="Rôle dans l’entreprise">
+                <select name="role">
+                  <option value="contributor">Contributeur</option>
+                  <option value="project_manager">Chef de projet</option>
+                  <option value="pmo">PMO</option>
+                  <option value="reader">Lecteur / Client</option>
+                </select>
+              </Field>
+              <p className="muted">
+                Après son inscription, ajoutez cette personne aux projets autorisés.
+              </p>
+              <div className="modal-footer">
+                <button className="primary">Créer le lien d’invitation</button>
+              </div>
+            </form>
+          )}
+        </Modal>
+      )}
+    </div>
+  );
+}
+function ProjectCard({
+  project: p,
+  favorite,
+  onFavorite,
+  onOpen,
+}: {
+  project: Project;
+  favorite: boolean;
+  onFavorite: () => void;
+  onOpen: () => void;
+}) {
+  return (
+    <article className="project-card">
+      <div className="project-card-head">
+        <span className={'project-emblem ' + p.color}>
+          <FolderKanban size={24} />
+        </span>
+        <button
+          className={'icon-button favorite ' + (favorite ? 'is-favorite' : '')}
+          aria-label={favorite ? 'Retirer des favoris' : 'Ajouter aux favoris'}
+          onClick={onFavorite}
+        >
+          <Star size={17} fill={favorite ? 'currentColor' : 'none'} />
+        </button>
+      </div>
+      <button className="project-card-title" onClick={onOpen}>
+        <h3>{p.name}</h3>
+        <ArrowUpRight size={17} />
+      </button>
+      <p className="project-description">
+        {p.description || 'Un nouvel objectif à construire ensemble.'}
+      </p>
+      <div className="project-card-status">
+        <Badge status={p.status} />
+        <span>{p.task_count} tâches</span>
+      </div>
+      <div className="project-card-progress">
+        <span>
+          Avancement<strong>{p.progress}%</strong>
+        </span>
+        <Progress value={p.progress} />
+      </div>
+      <footer>
+        <span>
+          <Avatar name={p.owner_name} small />
+          {p.owner_name.split(' ')[0]}
+        </span>
+        <span>
+          <CalendarDays size={14} />
+          {displayDate(p.end_date)}
+        </span>
+      </footer>
+    </article>
+  );
+}
+createRoot(document.getElementById('root')!).render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>,
+);
