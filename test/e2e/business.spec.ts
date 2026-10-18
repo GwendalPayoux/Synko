@@ -91,9 +91,12 @@ test('Planification avancée, budget, dossiers, validation, modèles et événem
     buffer: Buffer.from('Cahier de cadrage réel'),
   });
   await expect(page.getByText('brief.txt', { exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Historique de brief.txt' }).click();
-  await page.getByRole('button', { name: 'Lire l’aperçu texte' }).click();
+  await page.getByRole('button', { name: 'Ouvrir brief.txt' }).click();
   await expect(page.getByText('Cahier de cadrage réel', { exact: true })).toBeVisible();
+  await page
+    .getByRole('navigation', { name: 'Onglets du document' })
+    .getByRole('button', { name: 'Validations', exact: true })
+    .click();
   await page.getByLabel('Validateur de la version courante').selectOption(me.id);
   await page.getByRole('button', { name: 'Demander une validation' }).click();
   await page.getByRole('button', { name: 'Enregistrer la décision' }).click();

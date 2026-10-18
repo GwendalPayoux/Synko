@@ -268,6 +268,13 @@ test('Modules métier : relations, documents, budget, modèles, droits et notifi
     );
     const versions = (await req(root + `/documents/${doc}/versions`, 'GET', null, a)).value;
     await req(root + `/documents/${doc}/versions`, 'POST', Buffer.from('Version B'), a, 201, true);
+    assert.equal(
+      (await req(root + `/documents/${doc}/preview?version_id=${versions[0].id}`, 'GET', null, a))
+        .value.content,
+      'Version A',
+    );
+    await req(root + `/documents/${doc}/preview?version_id=absent`, 'GET', null, a, 404);
+    await req(root + `/documents/${doc}/preview?format=raw`, 'GET', null, a, 422);
     await req(root + `/documents/${doc}/restore`, 'POST', { version_id: versions[0].id }, a, 201);
     assert.equal(
       (await req(root + `/documents/${doc}/preview`, 'GET', null, a)).value.content,

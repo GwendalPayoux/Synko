@@ -28,3 +28,11 @@ Le mode sombre est une préférence locale, conservée au rechargement. Les favo
 Navigation latérale persistante sur desktop, tiroir sur mobile. Tableau et Gantt défilent dans leur propre conteneur. Calendrier en grille adaptable. Breakpoints 1500/1200/980/760 px. Focus visible ; boutons d’icône nommés ; champs associés à leurs labels ; progression exposée via ARIA ; erreurs `role=alert`, sauvegarde `role=status`. Le Gantt se déplace au clavier et s’édite aussi dans un formulaire ; le Kanban reste éditable par panneau sur tactile. Animations désactivables via `prefers-reduced-motion`.
 
 Une conformité WCAG complète n’est pas certifiée. Avant production : audit de contraste (notamment petits textes secondaires), lecteurs d’écran, agrandissement 200 %, cibles tactiles et calendrier au clavier.
+
+## Paramètres et lecture documentaire
+
+Les paramètres utilisent une navigation de sections à gauche et une seule section active à droite. La déconnexion est dans l’en-tête visible, indépendant des formulaires. L’identité de la sidebar est informative et ne duplique pas l’accès aux paramètres.
+
+Le clic sur le nom d’un document ouvre une vue de consultation dédiée : aperçu à gauche, onglets Informations / Versions / Validations / Commentaires à droite. Le raccourci d’historique ouvre directement l’onglet Versions dans cette même vue. Les panneaux défilent indépendamment sur desktop ; ils sont empilés sur mobile. Les anciennes versions se consultent sans restauration, avec indication explicite. Les métadonnées techniques sont repliées. Le retour à la liste replace le focus sur le nom du document.
+
+La création d’un événement est accessible dans l’en-tête de la page Calendrier.

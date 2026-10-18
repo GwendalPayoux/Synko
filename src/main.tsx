@@ -1,3 +1,4 @@
+import { SettingsPage } from './settings';
 import React, { useEffect, useState, type FormEvent } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
@@ -7,13 +8,11 @@ import {
   CalendarDays,
   Files,
   Settings,
-  LogOut,
   Plus,
   Search,
   ChevronRight,
   ArrowUpRight,
   ArrowLeft,
-  MoreHorizontal,
   Grid2X2,
   List,
   Star,
@@ -56,15 +55,12 @@ import {
   TeamManagement,
   EventsPanel,
   Templates,
-  OrganizationRoles,
-  Sessions,
-  AccountSettings,
-  PlatformAdmin,
   type Notice,
 } from './modules';
 import './styles.css';
 import './modules.css';
-import { Portfolio, Availability } from './portfolio';
+import './ux.css';
+import { Portfolio } from './portfolio';
 const navigation = [
   { id: 'dashboard', label: 'Mon espace', icon: LayoutDashboard },
   { id: 'projects', label: 'Projets', icon: FolderKanban },
@@ -100,6 +96,7 @@ function App() {
     [saveState, setSaveState] = useState(''),
     [notifications, setNotifications] = useState(false),
     [taskFilter, setTaskFilter] = useState('all');
+  const [eventRequest, setEventRequest] = useState(0);
   const [notices, setNotices] = useState<Notice[]>([]);
   const [showArchived, setShowArchived] = useState(false);
   async function refreshNotices() {
@@ -186,6 +183,7 @@ function App() {
       .finally(() => setLoading(false));
   }, [projectId]);
   function go(id: string) {
+    setEventRequest(0);
     setPage(id);
     setProjectId(null);
     setMobile(false);
@@ -424,7 +422,7 @@ function App() {
             <Settings size={18} />
             Paramètres
           </button>
-          <button className="profile" onClick={() => go('profile')}>
+          <div className="profile sidebar-identity">
             <Avatar name={user.name} />
             <div>
               <strong>{user.name}</strong>
@@ -433,7 +431,7 @@ function App() {
               </small>
             </div>
             <ChevronRight size={15} />
-          </button>
+          </div>
         </div>
       </aside>
       {mobile && <div className="mobile-overlay" onClick={() => setMobile(false)} />}
@@ -454,11 +452,9 @@ function App() {
                 ? project.name
                 : page === 'dashboard'
                   ? 'Mon espace'
-                  : page === 'profile'
-                    ? 'Mon profil'
-                    : page === 'settings'
-                      ? 'Paramètres'
-                      : navigation.find((n) => n.id === page)?.label}
+                  : page === 'settings'
+                    ? 'Paramètres'
+                    : navigation.find((n) => n.id === page)?.label}
             </strong>
           </div>
           <div className="topbar-actions">
@@ -1072,9 +1068,27 @@ function App() {
                   </h1>
                   <p>Toutes vos échéances affectées, à travers vos projets.</p>
                 </div>
+                {projects.some(
+                  (p) =>
+                    !p.archived_at &&
+                    (user.role === 'org_admin' ||
+                      (user.role === 'project_manager' && p.owner_id === user.id)),
+                ) && (
+                  <button className="primary" onClick={() => setEventRequest((n) => n + 1)}>
+                    <Plus size={17} />
+                    Nouvel événement
+                  </button>
+                )}
               </div>
               <Calendar tasks={personal} onTask={openTask} large />
-              <EventsPanel projects={projects} user={user} onError={setError} onSaved={saved} />
+              <EventsPanel
+                projects={projects.filter((p) => !p.archived_at)}
+                user={user}
+                onError={setError}
+                onSaved={saved}
+                headerAction
+                openRequest={eventRequest}
+              />
             </>
           )}
           {page === 'documents' && !project && (
@@ -1117,97 +1131,21 @@ function App() {
               )}
             </>
           )}
-          {(page === 'settings' || page === 'profile') && !project && (
-            <>
-              <div className="page-title">
-                <div>
-                  <div className="eyebrow">VOTRE ESPACE, VOS REPÈRES</div>
-                  <h1>
-                    {page === 'profile' ? 'Mon profil' : 'Paramètres'}
-                    <span className="greeting-dot">.</span>
-                  </h1>
-                  <p>
-                    {user.org_name} ·{' '}
-                    {user.platform_admin ? 'Administrateur plateforme' : roleLabels[user.role]}
-                  </p>
-                </div>
-              </div>
-              <div className="overview-grid">
-                <section className="panel settings-panel">
-                  <h3>Informations personnelles</h3>
-                  <form
-                    onSubmit={async (e) => {
-                      e.preventDefault();
-                      try {
-                        await api(
-                          '/me',
-                          'PATCH',
-                          Object.fromEntries(new FormData(e.currentTarget)),
-                        );
-                        setUser(await api<User>('/me'));
-                        setSaveState('Profil enregistré');
-                      } catch (e) {
-                        setError((e as Error).message);
-                      }
-                    }}
-                  >
-                    <Field label="Nom complet">
-                      <input name="name" defaultValue={user.name} required maxLength={100} />
-                    </Field>
-                    <Field label="Adresse e-mail">
-                      <input value={user.email} disabled />
-                    </Field>
-                    <button className="primary">Enregistrer</button>
-                  </form>
-                  <hr />
-                  <h3>Sessions</h3>
-                  <Sessions onError={setError} />
-                  <AccountSettings user={user} onError={setError} />
-                  <Availability user={user} onError={setError} />
-                  <p className="muted">Les sessions expirent automatiquement après 7 jours.</p>
-                  <button className="secondary" onClick={() => logout()}>
-                    <LogOut size={16} />
-                    Se déconnecter
-                  </button>
-                  <button className="link danger" onClick={() => logout(true)}>
-                    Fermer toutes mes sessions
-                  </button>
-                </section>
-                <section className="panel settings-panel">
-                  <div className="section-heading">
-                    <h3>Votre entreprise</h3>
-                    {user.role === 'org_admin' && (
-                      <button
-                        className="secondary"
-                        onClick={() => {
-                          setInvite(true);
-                          setInviteUrl('');
-                        }}
-                      >
-                        <Plus size={16} />
-                        Inviter
-                      </button>
-                    )}
-                  </div>
-                  <OrganizationRoles
-                    members={orgMembers}
-                    user={user}
-                    onError={setError}
-                    onSaved={async () => {
-                      setUser(await api<User>('/me'));
-                      await saved();
-                    }}
-                  />
-                  <hr />
-                  <h3>Services connectés</h3>
-                  {user.platform_admin && <PlatformAdmin onError={setError} />}
-                  <p className="muted">
-                    IA, e-mail transactionnel, Google Calendar et Outlook : non configurés. Aucune
-                    donnée n’est envoyée à ces services.
-                  </p>
-                </section>
-              </div>
-            </>
+          {page === 'settings' && !project && (
+            <SettingsPage
+              user={user}
+              members={orgMembers}
+              onError={setError}
+              onLogout={logout}
+              onInvite={() => {
+                setInvite(true);
+                setInviteUrl('');
+              }}
+              onSaved={async () => {
+                setUser(await api<User>('/me'));
+                await saved();
+              }}
+            />
           )}
           <footer className="app-footer">
             <span>

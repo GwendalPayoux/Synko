@@ -503,11 +503,15 @@ export function EventsPanel({
   user,
   onError,
   onSaved,
+  openRequest = 0,
+  headerAction,
 }: {
   projects: Project[];
   user: User;
   onError: (s: string) => void;
   onSaved: () => Promise<void>;
+  openRequest?: number;
+  headerAction?: boolean;
 }) {
   const [events, setEvents] = useState<EventItem[]>([]),
     [modal, setModal] = useState(false),
@@ -524,6 +528,9 @@ export function EventsPanel({
   const writable = projects.filter(
     (p) => user.role === 'org_admin' || (user.role === 'project_manager' && p.owner_id === user.id),
   );
+  useEffect(() => {
+    if (openRequest > 0) setModal(true);
+  }, [openRequest]);
   async function save(e: FormEvent<HTMLFormElement>) {
     const b = form(e);
     setBusy(true);
@@ -547,7 +554,7 @@ export function EventsPanel({
             Réunions, livraisons et dates importantes des projets accessibles
           </span>
         </div>
-        {writable.length > 0 && (
+        {!headerAction && writable.length > 0 && (
           <button className="primary" onClick={() => setModal(true)}>
             Nouvel événement
           </button>
@@ -1074,6 +1081,7 @@ export function DocumentDetails({
   folders,
   onError,
   onChanged,
+  section = 'all',
 }: {
   documentId: string;
   project: Project;
@@ -1081,6 +1089,7 @@ export function DocumentDetails({
   folders: Folder[];
   onError: (s: string) => void;
   onChanged: () => Promise<void>;
+  section?: 'all' | 'info' | 'approvals' | 'comments';
 }) {
   type Approval = {
     id: string;
@@ -1136,107 +1145,149 @@ export function DocumentDetails({
   if (!data) return <p className="loading">Chargement…</p>;
   return (
     <div className="document-details">
-      <hr />
-      <h3>Métadonnées et partage</h3>
-      <form onSubmit={save}>
-        <fieldset disabled={!write || busy}>
-          <Field label="Nom du document">
-            <input name="name" defaultValue={data.document.name} required maxLength={180} />
-          </Field>
-          <Field label="Dossier du document">
-            <select name="folder_id" defaultValue={data.document.folder_id || ''}>
-              <option value="">Racine</option>
-              {folders.map((f) => (
-                <option key={f.id} value={f.id}>
-                  {f.name}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Field label="Partage du document">
-            <select name="audience" defaultValue={data.document.audience}>
-              <option value="project">Tous les membres du projet</option>
-              <option value="internal">Équipe interne uniquement</option>
-            </select>
-          </Field>
-          {write && <button className="secondary">Enregistrer les métadonnées</button>}
-        </fieldset>
-      </form>
-      {write && (
+      {(section === 'all' || section === 'info') && (
         <>
-          <button className="link danger" onClick={() => setConfirm(true)}>
-            {data.document.archived_at ? 'Désarchiver le document' : 'Archiver le document'}
-          </button>
-          {confirm && (
-            <div className="confirm">
-              <p>
-                Confirmer{' '}
-                {data.document.archived_at ? 'la restauration dans la liste active' : 'l’archivage'}{' '}
-                de ce document ? Les versions seront conservées.
-              </p>
-              <button className="secondary" onClick={() => setConfirm(false)}>
-                Annuler
+          <h3>Métadonnées et partage</h3>
+          <form onSubmit={save}>
+            <fieldset disabled={!write || busy}>
+              <Field label="Nom du document">
+                <input name="name" defaultValue={data.document.name} required maxLength={180} />
+              </Field>
+              <Field label="Dossier du document">
+                <select name="folder_id" defaultValue={data.document.folder_id || ''}>
+                  <option value="">Racine</option>
+                  {folders.map((f) => (
+                    <option key={f.id} value={f.id}>
+                      {f.name}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Partage du document">
+                <select name="audience" defaultValue={data.document.audience}>
+                  <option value="project">Tous les membres du projet</option>
+                  <option value="internal">Équipe interne uniquement</option>
+                </select>
+              </Field>
+              {write && <button className="secondary">Enregistrer les métadonnées</button>}
+            </fieldset>
+          </form>
+          {write && (
+            <>
+              <button className="link danger" onClick={() => setConfirm(true)}>
+                {data.document.archived_at ? 'Désarchiver le document' : 'Archiver le document'}
               </button>
-              <button
-                className="primary"
-                onClick={async () => {
-                  try {
-                    await api(base, 'PATCH', { archived: !data.document.archived_at });
-                    await load();
-                    await onChanged();
-                    setConfirm(false);
-                  } catch (e) {
-                    fail(e, onError);
-                  }
-                }}
-              >
-                Confirmer
-              </button>
-            </div>
+              {confirm && (
+                <div className="confirm">
+                  <p>
+                    Confirmer{' '}
+                    {data.document.archived_at
+                      ? 'la restauration dans la liste active'
+                      : 'l’archivage'}{' '}
+                    de ce document ? Les versions seront conservées.
+                  </p>
+                  <button className="secondary" onClick={() => setConfirm(false)}>
+                    Annuler
+                  </button>
+                  <button
+                    className="primary"
+                    onClick={async () => {
+                      try {
+                        await api(base, 'PATCH', { archived: !data.document.archived_at });
+                        await load();
+                        await onChanged();
+                        setConfirm(false);
+                      } catch (e) {
+                        fail(e, onError);
+                      }
+                    }}
+                  >
+                    Confirmer
+                  </button>
+                </div>
+              )}
+            </>
           )}
         </>
       )}
-      <hr />
-      <h3>Aperçu</h3>
-      <button
-        className="secondary"
-        onClick={async () => {
-          try {
-            setPreview((await api<{ content: string }>(base + '/preview')).content);
-          } catch (e) {
-            fail(e, onError);
-          }
-        }}
-      >
-        Lire l’aperçu texte
-      </button>
-      <p className="muted small-text">
-        TXT, Markdown, CSV, JSON et logs, jusqu’à 1 Mo. Les autres formats se téléchargent.
-      </p>
-      {preview !== null && <pre className="text-preview">{preview}</pre>}
-      <hr />
-      <h3>Validations documentaires</h3>
-      {data.approvals.map((a) => (
-        <article className="approval" key={a.id}>
-          <strong>
-            Version {a.version} · {a.reviewer_name}
-          </strong>
-          <p>
-            {a.status === 'pending'
-              ? 'En attente'
-              : a.status === 'approved'
-                ? 'Approuvée'
-                : 'Refusée'}{' '}
-            · {new Date(a.created_at).toLocaleString('fr-FR')}
+      {section === 'all' && (
+        <>
+          <hr />
+          <h3>Aperçu</h3>
+          <button
+            className="secondary"
+            onClick={async () => {
+              try {
+                setPreview((await api<{ content: string }>(base + '/preview')).content);
+              } catch (e) {
+                fail(e, onError);
+              }
+            }}
+          >
+            Lire l’aperçu texte
+          </button>
+          <p className="muted small-text">
+            TXT, Markdown, CSV, JSON et logs, jusqu’à 1 Mo. Les autres formats se téléchargent.
           </p>
-          {a.reason && <p>Motif : {a.reason}</p>}
-          {a.status === 'pending' && a.reviewer_id === user.id && (
+          {preview !== null && <pre className="text-preview">{preview}</pre>}
+        </>
+      )}
+      {(section === 'all' || section === 'approvals') && (
+        <>
+          <h3>Validations documentaires</h3>
+          {data.approvals.map((a) => (
+            <article className="approval" key={a.id}>
+              <strong>
+                Version {a.version} · {a.reviewer_name}
+              </strong>
+              <p>
+                {a.status === 'pending'
+                  ? 'En attente'
+                  : a.status === 'approved'
+                    ? 'Approuvée'
+                    : 'Refusée'}{' '}
+                · {new Date(a.created_at).toLocaleString('fr-FR')}
+              </p>
+              {a.reason && <p>Motif : {a.reason}</p>}
+              {a.status === 'pending' && a.reviewer_id === user.id && (
+                <form
+                  onSubmit={async (e) => {
+                    const b = form(e);
+                    setBusy(true);
+                    try {
+                      await api(`/projects/${project.id}/approvals/${a.id}`, 'PATCH', b);
+                      await load();
+                      await onChanged();
+                    } catch (e) {
+                      fail(e, onError);
+                    } finally {
+                      setBusy(false);
+                    }
+                  }}
+                >
+                  <Field label="Décision">
+                    <select name="status">
+                      <option value="approved">Approuver</option>
+                      <option value="rejected">Refuser</option>
+                    </select>
+                  </Field>
+                  <Field label="Motif (obligatoire en cas de refus)">
+                    <textarea name="reason" maxLength={2000} />
+                  </Field>
+                  <button className="primary" disabled={busy}>
+                    Enregistrer la décision
+                  </button>
+                </form>
+              )}
+            </article>
+          ))}
+          {write && (
             <form
               onSubmit={async (e) => {
                 const b = form(e);
                 setBusy(true);
                 try {
-                  await api(`/projects/${project.id}/approvals/${a.id}`, 'PATCH', b);
+                  await api(base + '/approvals', 'POST', b);
                   await load();
                   await onChanged();
                 } catch (e) {
@@ -1246,63 +1297,36 @@ export function DocumentDetails({
                 }
               }}
             >
-              <Field label="Décision">
-                <select name="status">
-                  <option value="approved">Approuver</option>
-                  <option value="rejected">Refuser</option>
+              <Field label="Validateur de la version courante">
+                <select name="reviewer_id" required>
+                  {members
+                    .filter((m) => m.role !== 'reader')
+                    .map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.name}
+                      </option>
+                    ))}
                 </select>
               </Field>
-              <Field label="Motif (obligatoire en cas de refus)">
-                <textarea name="reason" maxLength={2000} />
-              </Field>
-              <button className="primary" disabled={busy}>
-                Enregistrer la décision
+              <button className="secondary" disabled={busy}>
+                Demander une validation
               </button>
             </form>
           )}
-        </article>
-      ))}
-      {write && (
-        <form
-          onSubmit={async (e) => {
-            const b = form(e);
-            setBusy(true);
-            try {
-              await api(base + '/approvals', 'POST', b);
-              await load();
-              await onChanged();
-            } catch (e) {
-              fail(e, onError);
-            } finally {
-              setBusy(false);
-            }
-          }}
-        >
-          <Field label="Validateur de la version courante">
-            <select name="reviewer_id" required>
-              {members
-                .filter((m) => m.role !== 'reader')
-                .map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.name}
-                  </option>
-                ))}
-            </select>
-          </Field>
-          <button className="secondary" disabled={busy}>
-            Demander une validation
-          </button>
-        </form>
+        </>
       )}
-      <hr />
-      <h3>Commentaires du document</h3>
-      <Comments
-        items={data.comments}
-        canWrite={user.role !== 'reader'}
-        path={base + '/comments'}
-        refresh={load}
-        onError={onError}
-      />
+      {(section === 'all' || section === 'comments') && (
+        <>
+          <h3>Commentaires du document</h3>
+          <Comments
+            items={data.comments}
+            canWrite={user.role !== 'reader'}
+            path={base + '/comments'}
+            refresh={load}
+            onError={onError}
+          />
+        </>
+      )}
     </div>
   );
 }
@@ -1389,7 +1413,15 @@ export function AccountRecovery({ onBack }: { onBack: () => void }) {
     </div>
   );
 }
-export function AccountSettings({ user, onError }: { user: User; onError: (s: string) => void }) {
+export function AccountSettings({
+  user,
+  onError,
+  section = 'all',
+}: {
+  user: User;
+  onError: (s: string) => void;
+  section?: 'all' | 'security' | 'organization';
+}) {
   const [message, setMessage] = useState(''),
     [busy, setBusy] = useState(false),
     [orgs, setOrgs] = useState<{ id: string; name: string; role: string }[]>([]);
@@ -1400,105 +1432,123 @@ export function AccountSettings({ user, onError }: { user: User; onError: (s: st
   }, []);
   return (
     <div className="account-settings">
-      <hr />
-      <h3>Sécurité du compte</h3>
-      <p className="muted">Adresse {user.email_verified ? 'vérifiée' : 'non vérifiée'}</p>
-      {!user.email_verified && (
-        <button
-          className="secondary"
-          onClick={async () => {
-            try {
-              setMessage((await api<{ message: string }>('/me/verification', 'POST', {})).message);
-            } catch (e) {
-              fail(e, onError);
-            }
-          }}
-        >
-          Demander un lien de vérification
-        </button>
+      {(section === 'all' || section === 'security') && (
+        <>
+          <h3>Sécurité du compte</h3>
+          <p className="muted">Adresse {user.email_verified ? 'vérifiée' : 'non vérifiée'}</p>
+          {!user.email_verified && (
+            <button
+              className="secondary"
+              onClick={async () => {
+                try {
+                  setMessage(
+                    (await api<{ message: string }>('/me/verification', 'POST', {})).message,
+                  );
+                } catch (e) {
+                  fail(e, onError);
+                }
+              }}
+            >
+              Demander un lien de vérification
+            </button>
+          )}
+          <form
+            onSubmit={async (e) => {
+              const b = form(e),
+                target = e.currentTarget;
+              setBusy(true);
+              try {
+                await api('/me/password', 'POST', b);
+                setMessage('Mot de passe changé. Vos autres sessions sont révoquées.');
+                target.reset();
+              } catch (e) {
+                fail(e, onError);
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            <Field label="Mot de passe actuel">
+              <input
+                name="current_password"
+                type="password"
+                autoComplete="current-password"
+                required
+              />
+            </Field>
+            <Field label="Nouveau mot de passe">
+              <input
+                name="password"
+                type="password"
+                autoComplete="new-password"
+                minLength={12}
+                maxLength={256}
+                required
+              />
+            </Field>
+            <button className="secondary" disabled={busy}>
+              Changer le mot de passe
+            </button>
+          </form>
+          {message && (
+            <p className="success" role="status">
+              {message}
+            </p>
+          )}
+        </>
       )}
-      <form
-        onSubmit={async (e) => {
-          const b = form(e),
-            target = e.currentTarget;
-          setBusy(true);
-          try {
-            await api('/me/password', 'POST', b);
-            setMessage('Mot de passe changé. Vos autres sessions sont révoquées.');
-            target.reset();
-          } catch (e) {
-            fail(e, onError);
-          } finally {
-            setBusy(false);
-          }
-        }}
-      >
-        <Field label="Mot de passe actuel">
-          <input name="current_password" type="password" autoComplete="current-password" required />
-        </Field>
-        <Field label="Nouveau mot de passe">
-          <input
-            name="password"
-            type="password"
-            autoComplete="new-password"
-            minLength={12}
-            maxLength={256}
-            required
-          />
-        </Field>
-        <button className="secondary" disabled={busy}>
-          Changer le mot de passe
-        </button>
-      </form>
-      {message && (
-        <p className="success" role="status">
-          {message}
-        </p>
+      {(section === 'all' || section === 'organization') && (
+        <>
+          <h3>Mes organisations</h3>
+          <Field label="Organisation active">
+            <select
+              value={user.org_id}
+              onChange={async (e) => {
+                try {
+                  await api('/organizations/switch', 'POST', { org_id: e.target.value });
+                  location.reload();
+                } catch (e) {
+                  fail(e, onError);
+                }
+              }}
+            >
+              {orgs.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.name} · {roleLabels[o.role]}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <form
+            onSubmit={async (e) => {
+              const b = form(e);
+              try {
+                let value = String(b.invitation);
+                if (value.includes('://'))
+                  value = new URL(value).searchParams.get('invitation') || '';
+                await api('/invitations/accept-existing', 'POST', { token: value });
+                location.reload();
+              } catch (e) {
+                fail(e, onError);
+              }
+            }}
+          >
+            <Field label="Lien ou jeton d’invitation à une autre entreprise">
+              <input name="invitation" required />
+            </Field>
+            <button className="secondary">Accepter l’invitation</button>
+          </form>
+        </>
       )}
-      <hr />
-      <h3>Mes organisations</h3>
-      <Field label="Organisation active">
-        <select
-          value={user.org_id}
-          onChange={async (e) => {
-            try {
-              await api('/organizations/switch', 'POST', { org_id: e.target.value });
-              location.reload();
-            } catch (e) {
-              fail(e, onError);
-            }
-          }}
-        >
-          {orgs.map((o) => (
-            <option key={o.id} value={o.id}>
-              {o.name} · {roleLabels[o.role]}
-            </option>
-          ))}
-        </select>
-      </Field>
-      <form
-        onSubmit={async (e) => {
-          const b = form(e);
-          try {
-            let value = String(b.invitation);
-            if (value.includes('://')) value = new URL(value).searchParams.get('invitation') || '';
-            await api('/invitations/accept-existing', 'POST', { token: value });
-            location.reload();
-          } catch (e) {
-            fail(e, onError);
-          }
-        }}
-      >
-        <Field label="Lien ou jeton d’invitation à une autre entreprise">
-          <input name="invitation" required />
-        </Field>
-        <button className="secondary">Accepter l’invitation</button>
-      </form>
-      <hr />
-      <h3>Mes données personnelles</h3>
-      <a className="secondary" download="synko-mes-donnees.json" href="/api/me/export">
-        Exporter mes données JSON
-      </a>
+      {(section === 'all' || section === 'security') && (
+        <>
+          <hr />
+          <h3>Mes données personnelles</h3>
+          <a className="secondary" download="synko-mes-donnees.json" href="/api/me/export">
+            Exporter mes données JSON
+          </a>
+        </>
+      )}
     </div>
   );
 }

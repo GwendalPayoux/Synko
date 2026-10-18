@@ -849,11 +849,61 @@ export function businessModules(ctx) {
           return true;
         }
         if (dm[2] === 'preview' && method === 'GET') {
-          const v = one(
-            'SELECT * FROM document_versions WHERE document_id=? AND org_id=? ORDER BY version DESC LIMIT 1',
-            d.id,
-            s.org_id,
-          );
+          const requestedVersion = url.searchParams.get('version_id');
+          const v = requestedVersion
+            ? one(
+                'SELECT * FROM document_versions WHERE id=? AND document_id=? AND org_id=?',
+                requestedVersion,
+                d.id,
+                s.org_id,
+              )
+            : one(
+                'SELECT * FROM document_versions WHERE document_id=? AND org_id=? ORDER BY version DESC LIMIT 1',
+                d.id,
+                s.org_id,
+              );
+          if (!v) throw new HttpError(404, 'Version introuvable.');
+          if (url.searchParams.get('format') === 'raw') {
+            const bytes = readFileSync(join(files, v.storage_key));
+            const signature = bytes.subarray(0, 12);
+            let mime = null;
+            if (/\.pdf$/i.test(d.name) && signature.subarray(0, 5).toString() === '%PDF-')
+              mime = 'application/pdf';
+            if (
+              /\.png$/i.test(d.name) &&
+              signature.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
+            )
+              mime = 'image/png';
+            if (
+              /\.jpe?g$/i.test(d.name) &&
+              signature[0] === 255 &&
+              signature[1] === 216 &&
+              signature[2] === 255
+            )
+              mime = 'image/jpeg';
+            if (
+              /\.webp$/i.test(d.name) &&
+              signature.subarray(0, 4).toString() === 'RIFF' &&
+              signature.subarray(8, 12).toString() === 'WEBP'
+            )
+              mime = 'image/webp';
+            if (!mime)
+              throw new HttpError(
+                422,
+                'Aperçu intégré indisponible pour ce format ou signature de fichier invalide.',
+              );
+            audit(s, pid, 'Version documentaire consultée', d.id);
+            res.writeHead(200, {
+              'Content-Type': mime,
+              'Content-Length': bytes.length,
+              'Content-Disposition': `inline; filename*=UTF-8''${encodeURIComponent(d.name)}`,
+              'X-Frame-Options': 'SAMEORIGIN',
+              'Content-Security-Policy':
+                "default-src 'none'; frame-ancestors 'self'; sandbox allow-same-origin",
+            });
+            res.end(bytes);
+            return true;
+          }
           if (!/\.(txt|md|csv|json|log)$/i.test(d.name))
             throw new HttpError(
               422,

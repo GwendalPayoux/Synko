@@ -1,8 +1,9 @@
+import { DocumentViewer } from './document-viewer';
 import { useEffect, useRef, useState } from 'react';
 import { FileText, Upload, Download, History, FolderOpen } from 'lucide-react';
-import { api, type Document, type Version, type Project, type User } from './domain';
+import { api, type Document, type Project, type User } from './domain';
 import { Empty, Modal, Field } from './components';
-import { DocumentDetails, type Folder } from './modules';
+import { type Folder } from './modules';
 const size = (n: number) =>
   n < 1024
     ? n + ' o'
@@ -21,7 +22,6 @@ export function Documents({
   user: User;
 }) {
   const [docs, setDocs] = useState<Document[]>([]),
-    [versions, setVersions] = useState<Version[]>([]),
     [selected, setSelected] = useState<Document | null>(null),
     [busy, setBusy] = useState(false),
     [loading, setLoading] = useState(true),
@@ -32,7 +32,7 @@ export function Documents({
     [folderEdit, setFolderEdit] = useState<
       Folder | { id: string; name: string; parent_id: string | null } | null
     >(null),
-    [restore, setRestore] = useState<Version | null>(null);
+    [documentTab, setDocumentTab] = useState<'info' | 'versions'>('info');
   const input = useRef<HTMLInputElement>(null),
     [target, setTarget] = useState<Document | null>(null);
   const base = `/projects/${project.id}/documents`;
@@ -72,14 +72,39 @@ export function Documents({
       if (input.current) input.current.value = '';
     }
   }
-  async function history(doc: Document) {
-    try {
-      setVersions(await api<Version[]>(`${base}/${doc.id}/versions`));
-      setSelected(doc);
-    } catch (e) {
-      onError((e as Error).message);
-    }
+  function history(doc: Document) {
+    setDocumentTab('versions');
+    setSelected(doc);
   }
+  if (selected)
+    return (
+      <>
+        <input ref={input} type="file" hidden onChange={(e) => upload(e.target.files?.[0])} />
+        <DocumentViewer
+          document={docs.find((d) => d.id === selected.id) || selected}
+          project={project}
+          user={user}
+          folders={folders}
+          initialTab={documentTab}
+          onChanged={load}
+          onError={onError}
+          busy={busy}
+          onUpload={() => {
+            setTarget(selected);
+            input.current?.click();
+          }}
+          onClose={() => {
+            const id = selected.id;
+            setSelected(null);
+            requestAnimationFrame(() =>
+              window.document
+                .querySelector<HTMLButtonElement>('[data-document-id="' + CSS.escape(id) + '"]')
+                ?.focus(),
+            );
+          }}
+        />
+      </>
+    );
   return (
     <section className="panel">
       <div className="panel-head">
@@ -188,10 +213,18 @@ export function Documents({
                 .map((d) => (
                   <tr key={d.id}>
                     <td>
-                      <span className="file-name">
+                      <button
+                        className="file-name document-open"
+                        data-document-id={d.id}
+                        onClick={() => {
+                          setDocumentTab('info');
+                          setSelected(d);
+                        }}
+                        aria-label={'Ouvrir ' + d.name}
+                      >
                         <FileText size={20} />
                         {d.name}
-                      </span>
+                      </button>
                     </td>
                     <td>
                       <span className="version-badge">v{d.version}</span>
@@ -234,64 +267,6 @@ export function Documents({
             </tbody>
           </table>
         </div>
-      )}
-      {selected && (
-        <Modal title={'Versions · ' + selected.name} onClose={() => setSelected(null)}>
-          <div className="version-list">
-            {versions.map((v) => (
-              <article key={v.id}>
-                <div>
-                  <strong>Version {v.version}</strong>
-                  <p>
-                    {new Date(v.created_at).toLocaleString('fr-FR')} · {size(v.size)}
-                  </p>
-                  <small title={v.sha256}>SHA-256 : {v.sha256.slice(0, 20)}…</small>
-                </div>
-                <a className="secondary" href={'/api' + base + `/${selected.id}/versions/${v.id}`}>
-                  <Download size={16} />
-                  Télécharger
-                </a>
-                {(user.role === 'org_admin' ||
-                  (user.role === 'project_manager' && project.owner_id === user.id)) && (
-                  <button className="secondary" onClick={() => setRestore(v)}>
-                    Restaurer v{v.version}
-                  </button>
-                )}
-              </article>
-            ))}
-          </div>
-          {restore && (
-            <div className="confirm">
-              <p>Restaurer la version {restore.version} en créant une nouvelle version ?</p>
-              <button className="secondary" onClick={() => setRestore(null)}>
-                Annuler
-              </button>
-              <button
-                className="primary"
-                onClick={async () => {
-                  try {
-                    await api(`${base}/${selected.id}/restore`, 'POST', { version_id: restore.id });
-                    await load();
-                    await history(selected);
-                    setRestore(null);
-                  } catch (e) {
-                    onError((e as Error).message);
-                  }
-                }}
-              >
-                Confirmer la restauration
-              </button>
-            </div>
-          )}
-          <DocumentDetails
-            documentId={selected.id}
-            project={project}
-            user={user}
-            folders={folders}
-            onError={onError}
-            onChanged={load}
-          />
-        </Modal>
       )}
       {folderEdit && (
         <Modal
