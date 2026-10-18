@@ -1,4 +1,5 @@
-import { useState, type FormEvent, type PointerEvent } from 'react';
+import { useEffect, useMemo, useState, type FormEvent, type PointerEvent } from 'react';
+import { TaskExtras } from './modules';
 import { Plus, Diamond, GripVertical, Trash2, ChevronRight } from 'lucide-react';
 import {
   type Task,
@@ -34,6 +35,7 @@ export function TaskEditor({
     [error, setError] = useState(''),
     [milestone, setMilestone] = useState(Boolean(task?.milestone)),
     [confirmDelete, setConfirmDelete] = useState(false);
+  const [revision, setRevision] = useState(task?.revision);
   const full =
     user.role === 'org_admin' || (user.role === 'project_manager' && project.owner_id === user.id);
   const canWrite = full || (user.role === 'contributor' && task?.assignee_id === user.id);
@@ -54,7 +56,7 @@ export function TaskEditor({
       await api(
         `/projects/${project.id}/tasks${task ? '/' + task.id : ''}`,
         task ? 'PATCH' : 'POST',
-        { ...values, ...(task ? { revision: task.revision } : {}) },
+        { ...values, ...(task ? { revision } : {}) },
       );
       await onSaved();
       onClose();
@@ -203,6 +205,15 @@ export function TaskEditor({
           </div>
         )}
       </form>
+      {task && (
+        <TaskExtras
+          task={task}
+          project={project}
+          user={user}
+          onError={onError}
+          onRevision={setRevision}
+        />
+      )}
     </Modal>
   );
 }
@@ -359,7 +370,7 @@ export function Kanban({
   );
 }
 export function Gantt({
-  tasks,
+  tasks: rawTasks,
   onTask,
   onDates,
   canEdit,
@@ -371,6 +382,30 @@ export function Gantt({
   canEdit: (t: Task) => boolean;
   project: Project;
 }) {
+  const tasks = useMemo(() => {
+    const out: Task[] = [],
+      seen = new Set<string>();
+    function add(t: Task) {
+      if (seen.has(t.id)) return;
+      seen.add(t.id);
+      out.push(t);
+      rawTasks.filter((c) => c.parent_id === t.id).forEach(add);
+    }
+    rawTasks.filter((t) => !rawTasks.some((p) => p.id === t.parent_id)).forEach(add);
+    rawTasks.forEach(add);
+    return out;
+  }, [rawTasks]);
+  const depth = (t: Task) => {
+    let n = 0,
+      p = t.parent_id;
+    const seen = new Set<string>();
+    while (p && !seen.has(p)) {
+      seen.add(p);
+      n++;
+      p = tasks.find((t) => t.id === p)?.parent_id;
+    }
+    return Math.min(n, 8);
+  };
   const [scale, setScale] = useState(36),
     [gesture, setGesture] = useState<{
       id: string;
@@ -381,6 +416,14 @@ export function Gantt({
   const first = shiftDate([project.start_date, ...tasks.map((t) => t.start_date)].sort()[0], -3);
   const last = shiftDate([project.end_date, ...tasks.map((t) => t.end_date)].sort().at(-1)!, 5);
   const count = Math.max(14, Math.min(730, dayDiff(first, last) + 1));
+  const [links, setLinks] = useState<
+    { task_id: string; predecessor_id: string; conflict: boolean }[]
+  >([]);
+  useEffect(() => {
+    api<{ dependencies: typeof links }>(`/projects/${project.id}/planning`)
+      .then((d) => setLinks(d.dependencies))
+      .catch(() => setLinks([]));
+  }, [project.id, tasks]);
   function down(e: PointerEvent<HTMLButtonElement>, t: Task, resize: boolean) {
     if (!canEdit(t)) return;
     e.stopPropagation();
@@ -458,7 +501,12 @@ export function Gantt({
                 );
               return (
                 <div className="gantt-row" key={t.id}>
-                  <button className="gantt-label" onClick={() => onTask(t)}>
+                  <button
+                    className="gantt-label"
+                    style={{ paddingLeft: 20 + depth(t) * 14 }}
+                    onClick={() => onTask(t)}
+                  >
+                    {t.parent_id && <span aria-label="Sous-tâche">↳</span>}
                     {t.milestone ? (
                       <Diamond size={14} />
                     ) : (
@@ -524,10 +572,47 @@ export function Gantt({
                 </div>
               );
             })}
+            <svg
+              className="dependency-lines"
+              style={{ left: 260, top: 55 }}
+              width={count * scale}
+              height={tasks.length * 53}
+              aria-label="Dépendances fin-début"
+            >
+              {links.map((d) => {
+                const a = tasks.findIndex((t) => t.id === d.predecessor_id),
+                  b = tasks.findIndex((t) => t.id === d.task_id);
+                if (a < 0 || b < 0) return null;
+                const x = (dayDiff(first, tasks[a].end_date) + 1) * scale,
+                  y = a * 53 + 26,
+                  x2 = dayDiff(first, tasks[b].start_date) * scale,
+                  y2 = b * 53 + 26;
+                return (
+                  <g key={d.task_id + d.predecessor_id}>
+                    <title>
+                      {tasks[a].title} → {tasks[b].title}
+                      {d.conflict ? ' : dates en conflit' : ''}
+                    </title>
+                    <path
+                      d={`M${x},${y} H${x + 10} V${y2} H${x2}`}
+                      fill="none"
+                      stroke={d.conflict ? '#b36555' : '#7d9386'}
+                      strokeWidth="1.5"
+                    />
+                    <path
+                      d={`M${x2 - 5},${y2 - 4} L${x2},${y2} L${x2 - 5},${y2 + 4}`}
+                      fill="none"
+                      stroke={d.conflict ? '#b36555' : '#7d9386'}
+                    />
+                  </g>
+                );
+              })}
+            </svg>
           </div>
         </div>
       )}
       <footer className="gantt-footer">
+        <span>{links.filter((d) => d.conflict).length} conflit(s) de dépendance</span>
         <span>
           <i className="legend-dot" />
           Aujourd’hui

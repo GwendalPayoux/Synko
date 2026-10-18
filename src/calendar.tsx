@@ -1,8 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ChevronLeft, ChevronRight, CalendarDays } from 'lucide-react';
-import { type Task, today, shiftDate, displayDate, dayDiff } from './domain';
+import { api, type Task, today, shiftDate, displayDate, dayDiff } from './domain';
+import { type EventItem } from './modules';
+import { Modal } from './components';
 export function Calendar({
-  tasks,
+  tasks: assigned,
   onTask,
   large = false,
 }: {
@@ -12,6 +14,36 @@ export function Calendar({
 }) {
   const [anchor, setAnchor] = useState(today()),
     [view, setView] = useState('month');
+  const [events, setEvents] = useState<EventItem[]>([]),
+    [selectedEvent, setSelectedEvent] = useState<EventItem | null>(null),
+    [projectFilter, setProjectFilter] = useState('all'),
+    [typeFilter, setTypeFilter] = useState('all'),
+    [error, setError] = useState('');
+  useEffect(() => {
+    api<EventItem[]>('/events')
+      .then(setEvents)
+      .catch((e) => setError(e.message));
+  }, [assigned]);
+  const combined = [
+    ...assigned,
+    ...events.map(
+      (e) =>
+        ({ ...e, project_name: e.project_name, milestone: 0, _event: e }) as unknown as Task & {
+          _event: EventItem;
+        },
+    ),
+  ];
+  const tasks = combined.filter(
+    (t) =>
+      (projectFilter === 'all' || t.project_id === projectFilter) &&
+      (typeFilter === 'all' ||
+        (typeFilter === 'task' && !('_event' in t)) ||
+        ('_event' in t && (t as Task & { _event: EventItem })._event.kind === typeFilter)),
+  );
+  function open(t: Task) {
+    if ('_event' in t) setSelectedEvent((t as Task & { _event: EventItem })._event);
+    else onTask(t);
+  }
   const start = anchor.slice(0, 7) + '-01';
   const weekday = (new Date(start + 'T12:00:00').getDay() + 6) % 7;
   const weekStart = shiftDate(anchor, -((new Date(anchor + 'T12:00:00').getDay() + 6) % 7));
@@ -53,6 +85,39 @@ export function Calendar({
           </div>
         </div>
       </div>
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
+      <div className="calendar-filters">
+        <select
+          aria-label="Projet du calendrier"
+          value={projectFilter}
+          onChange={(e) => setProjectFilter(e.target.value)}
+        >
+          <option value="all">Tous les projets</option>
+          {Array.from(new Map(combined.map((t) => [t.project_id, t.project_name])).entries()).map(
+            ([id, name]) => (
+              <option value={id} key={id}>
+                {name || 'Projet'}
+              </option>
+            ),
+          )}
+        </select>
+        <select
+          aria-label="Type du calendrier"
+          value={typeFilter}
+          onChange={(e) => setTypeFilter(e.target.value)}
+        >
+          <option value="all">Tous les types</option>
+          <option value="task">Tâches et jalons</option>
+          <option value="meeting">Réunions</option>
+          <option value="delivery">Livraisons</option>
+          <option value="deadline">Échéances</option>
+          <option value="event">Autres événements</option>
+        </select>
+      </div>
       <div className="month-head">
         <strong>
           {new Date(anchor + 'T12:00:00').toLocaleDateString('fr-FR', {
@@ -78,7 +143,7 @@ export function Calendar({
             .filter((t) => t.end_date >= anchor && dayDiff(anchor, t.end_date) < 31)
             .sort((a, b) => a.end_date.localeCompare(b.end_date))
             .map((t) => (
-              <button key={t.id} onClick={() => onTask(t)}>
+              <button key={t.id} onClick={() => open(t)}>
                 <span>{displayDate(t.end_date)}</span>
                 <strong>{t.title}</strong>
                 <span className="muted">{t.project_name}</span>
@@ -113,7 +178,7 @@ export function Calendar({
                     <button
                       key={t.id}
                       className={'calendar-event ' + (t.milestone ? 'milestone' : '')}
-                      onClick={() => onTask(t)}
+                      onClick={() => open(t)}
                       title={t.title}
                     >
                       {t.milestone ? '◆ ' : ''}
@@ -129,6 +194,15 @@ export function Calendar({
             ))}
           </div>
         </>
+      )}
+      {selectedEvent && (
+        <Modal title={selectedEvent.title} onClose={() => setSelectedEvent(null)}>
+          <p>
+            {selectedEvent.project_name} · {displayDate(selectedEvent.start_date)} —{' '}
+            {displayDate(selectedEvent.end_date)}
+          </p>
+          <p>{selectedEvent.description}</p>
+        </Modal>
       )}
     </section>
   );

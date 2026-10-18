@@ -21,7 +21,7 @@ test/                Intégration API et parcours E2E
 docs/                Contrats, limites et décisions
 ```
 
-Étape suivante de refactorisation : extraire les routes de `app.mjs` en modules auth, projets, tâches, documents et séparer services/repositories au fur et à mesure des nouvelles règles. Le serveur actuel utilise des requêtes préparées paramétrées ; aucune concaténation de donnée utilisateur dans le SQL.
+Les routes complémentaires sont extraites dans `modules.mjs` et `accounts.mjs` ; les règles de planification, charge et modèles sont dans des modules dédiés. Les repositories PostgreSQL asynchrones restent une étape de production. Le serveur actuel utilise des requêtes préparées paramétrées ; aucune concaténation de donnée utilisateur dans le SQL.
 
 ## Modèle implémenté
 
@@ -44,23 +44,9 @@ erDiagram
 
 Les clés étrangères composites `(org_id, project_id)` interdisent les liens de projet entre entreprises. Affectations et responsables référencent les appartenances de la même organisation. Les tâches jalons partagent la table `tasks` (`milestone=1`). Les contrôles applicatifs imposent l’appartenance de l’affectataire au projet. Les cinq rôles entreprise sont centralisés côté serveur. PMO : lecture transversale ; lecteur : lecture de ses projets autorisés ; contributeur : statut/progression de ses tâches et import documentaire de ses projets ; chef : création et gestion des projets dont il est responsable ; administrateur entreprise : gestion de tous les projets et invitations.
 
-## Modèle cible à migrer progressivement
+## Modèle étendu
 
-| Besoin                    | Entités / contraintes prévues                                                                                                      |
-| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| Hiérarchie et dépendances | `tasks.parent_id`, `task_dependencies` avec mêmes organisation/projet, détection des cycles                                        |
-| Affectations multiples    | `task_assignments`, participants, capacité hebdomadaire                                                                            |
-| Documents organisés       | `folders` parentés, métadonnées, archivage et partage explicite                                                                    |
-| Discussions               | `comments`, pièces jointes avec références métier et accès hérités                                                                 |
-| Validation                | `approval_requests`, `approval_steps`, `approval_decisions` immuables, raison de refus                                             |
-| Finance                   | `budget_revisions`, `expenses`, `commitments`, catégories ; sommes centralisées en centimes                                        |
-| Calendrier                | `events`, `event_attendees`, fournisseurs externes configurés séparément                                                           |
-| Notifications             | `notifications`, destinataires, `read_at`, outbox dédupliquée et préférences                                                       |
-| Modèles                   | `templates`, versions et structures copiées transactionnellement                                                                   |
-| Plateforme                | comptes et capacités d’administration explicites ; aucun contournement implicite de tenant                                         |
-| IA                        | adaptateur serveur désactivé par défaut, consentement et configuration par organisation, journal d’accès, minimisation des données |
-
-Ces tables cibles **ne sont pas créées** pour donner une illusion de couverture. Chaque ajout viendra avec migration, API, permissions et tests.
+Le schéma inclut désormais dépendances et hiérarchie, dossiers, commentaires, liens de documents aux tâches, validations documentaires par version, révisions et écritures budgétaires, événements, notifications, modèles, jetons de compte, journal de sécurité et disponibilités. Voir [la description du lot métier](business-release.md). Les tables de participants multiples, workflows de validation séquentiels, intégrations et administration commerciale restent à développer.
 
 ## Cohérence
 

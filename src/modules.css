@@ -1,0 +1,274 @@
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 18px;
+}
+.portfolio-panel {
+  margin-bottom: 25px;
+}
+.availability form {
+  margin: 20px 0;
+}
+.availability h3 {
+  margin: 16px 0;
+}
+.availability article {
+  padding: 13px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+}
+.metric {
+  padding: 22px;
+}
+.metric span {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+}
+.metric strong {
+  font-size: 25px;
+  font-weight: 550;
+  display: block;
+  margin-top: 14px;
+}
+.budget-alert {
+  padding: 16px;
+  margin-bottom: 20px;
+  background: var(--accent-soft);
+  border-radius: 8px;
+  font-size: 12px;
+}
+.module-toolbar {
+  padding: 18px;
+  margin: 0;
+}
+.events-panel {
+  margin-top: 24px;
+}
+.events-panel .agenda article {
+  border-bottom: 1px solid var(--line);
+  padding: 18px 0;
+}
+.events-panel .agenda article p {
+  font-size: 12px;
+}
+.task-extras h3,
+.document-details h3 {
+  margin: 18px 0;
+}
+.task-extras p,
+.document-details p {
+  font-size: 12px;
+  margin: 12px 0;
+}
+.comments article {
+  background: var(--bg);
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  margin: 12px 0;
+}
+.comments strong {
+  font-size: 12px;
+}
+.comments small {
+  display: block;
+  color: var(--muted);
+  font-size: 10px;
+  margin-top: 6px;
+}
+.comments p {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.comments form,
+.account-settings form {
+  margin-top: 20px;
+}
+.text-preview {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  padding: 18px;
+  border-radius: 7px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  max-height: 400px;
+  overflow: auto;
+}
+.approval {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 18px;
+  margin: 12px 0;
+}
+.approval strong {
+  font-size: 12px;
+}
+.notification-list {
+  max-height: 65vh;
+  overflow: auto;
+}
+.notification-list article {
+  padding: 14px 9px;
+  border-bottom: 1px solid var(--line);
+}
+.notification-list article.unread {
+  background: var(--accent-soft);
+}
+.notification-list article > button:first-child {
+  text-align: left;
+  display: block;
+  width: 100%;
+  padding: 0;
+}
+.notification-list strong {
+  font-size: 12px;
+  font-weight: 550;
+}
+.notification-list small {
+  display: block;
+  font-size: 10px;
+  color: var(--muted);
+  margin: 7px 0;
+}
+.notification-list .link {
+  font-size: 10px;
+}
+.template-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 20px;
+}
+.role-list .org-member {
+  justify-content: space-between;
+  gap: 10px;
+}
+.role-list .org-member select {
+  font-size: 11px;
+  max-width: 180px;
+}
+.session-list > div {
+  font-size: 11px;
+  line-height: 1.8;
+  padding: 13px 0;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  border-bottom: 1px solid var(--line);
+}
+.document-search {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+.document-search .check-field {
+  margin: 0;
+}
+.document-search select {
+  max-width: 220px;
+  font-size: 11px;
+}
+.gantt {
+  position: relative;
+}
+.dependency-lines {
+  position: absolute;
+  pointer-events: none;
+  z-index: 1;
+}
+.gantt-bar,
+.gantt-resize {
+  z-index: 2;
+}
+.gantt-label.head,
+.gantt-label {
+  z-index: 3;
+}
+.recovery-page {
+  max-width: 540px;
+  margin: 8vh auto;
+  padding: 32px;
+}
+.recovery-page h1 {
+  font-size: 27px;
+}
+.recovery-page p {
+  font-size: 12px;
+  margin: 20px 0;
+}
+.recovery-page > .secondary {
+  margin-top: 20px;
+}
+.success {
+  padding: 15px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-radius: 7px;
+  margin: 16px 0;
+  font-size: 12px;
+}
+.calendar-filters {
+  display: flex;
+  gap: 10px;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--line);
+}
+.calendar-filters select {
+  min-width: 0;
+  max-width: 50%;
+  font-size: 10px;
+  padding: 6px;
+  min-height: 30px;
+}
+.role-list .org-member > div {
+  min-width: 0;
+}
+.role-list small {
+  overflow-wrap: anywhere;
+}
+@media (max-width: 980px) {
+  .metric-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .metric strong {
+    font-size: 22px;
+  }
+}
+@media (max-width: 760px) {
+  .panel > .settings-panel {
+    padding: 18px;
+  }
+  .metric {
+    padding: 17px;
+  }
+  .metric strong {
+    font-size: 19px;
+  }
+  .role-list .org-member {
+    flex-wrap: wrap;
+  }
+  .document-search select {
+    width: 100%;
+    max-width: 100%;
+  }
+  .events-panel .panel-head .primary {
+    margin-left: auto;
+  }
+  .template-grid .secondary {
+    white-space: normal;
+    text-align: left;
+  }
+  .recovery-page {
+    margin: 25px 16px;
+  }
+  .gantt-footer {
+    flex-wrap: wrap;
+  }
+  .gantt-footer span:last-child {
+    margin-left: 0;
+  }
+}

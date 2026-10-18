@@ -2,11 +2,13 @@ import { useState, type FormEvent } from 'react';
 import { ArrowRight, Layers, ShieldCheck, CalendarDays, FolderKanban } from 'lucide-react';
 import { api } from './domain';
 import { Field } from './components';
+import { AccountRecovery } from './modules';
 export function Auth({ onLogin }: { onLogin: () => void }) {
   const invite = new URLSearchParams(location.search).get('invitation');
   const [mode, setMode] = useState(invite ? 'accept' : 'login'),
     [error, setError] = useState(''),
     [busy, setBusy] = useState(false);
+  const [forgot, setForgot] = useState(false);
   async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setBusy(true);
@@ -14,6 +16,8 @@ export function Auth({ onLogin }: { onLogin: () => void }) {
     const data = Object.fromEntries(new FormData(e.currentTarget));
     try {
       await api('/auth/' + mode, 'POST', { ...data, token: invite });
+      if (invite && mode === 'login')
+        await api('/invitations/accept-existing', 'POST', { token: invite });
       history.replaceState(null, '', location.pathname);
       onLogin();
     } catch (e) {
@@ -22,6 +26,19 @@ export function Auth({ onLogin }: { onLogin: () => void }) {
       setBusy(false);
     }
   }
+  if (
+    forgot ||
+    new URLSearchParams(location.search).has('reset') ||
+    new URLSearchParams(location.search).has('verify')
+  )
+    return (
+      <AccountRecovery
+        onBack={() => {
+          history.replaceState(null, '', location.pathname);
+          setForgot(false);
+        }}
+      />
+    );
   return (
     <div className="auth">
       <section className="auth-story">
@@ -120,6 +137,18 @@ export function Auth({ onLogin }: { onLogin: () => void }) {
               <ArrowRight size={18} />
             </button>
           </form>
+          {mode === 'login' && (
+            <button className="link" onClick={() => setForgot(true)}>
+              Mot de passe oublié ?
+            </button>
+          )}
+          {invite && (
+            <button className="link" onClick={() => setMode(mode === 'login' ? 'accept' : 'login')}>
+              {mode === 'login'
+                ? 'Créer un compte invité'
+                : 'J’ai déjà un compte : accepter cette invitation'}
+            </button>
+          )}
           {!invite && (
             <p className="auth-switch">
               {mode === 'login' ? 'Vous découvrez Synko ?' : 'Déjà un compte ?'}{' '}
@@ -138,9 +167,6 @@ export function Auth({ onLogin }: { onLogin: () => void }) {
             <ShieldCheck size={16} />
             Vos données restent dans votre espace entreprise.
           </div>
-          <p className="muted small-text">
-            Réinitialisation du mot de passe : non disponible dans cette première version.
-          </p>
         </div>
       </section>
     </div>

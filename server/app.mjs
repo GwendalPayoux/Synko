@@ -3,6 +3,9 @@ import { randomUUID } from 'node:crypto';
 import { mkdirSync, writeFileSync, readFileSync, existsSync, unlinkSync } from 'node:fs';
 import { resolve, join, extname } from 'node:path';
 import { openDatabase, transaction } from './database.mjs';
+import { businessModules } from './modules.mjs';
+import { accountsModule } from './accounts.mjs';
+import { seedTemplates } from './templates.mjs';
 import {
   HttpError,
   token,
@@ -36,7 +39,10 @@ async function body(req, limit = 65536) {
 }
 async function payload(req) {
   try {
-    return JSON.parse((await body(req)).toString() || '{}');
+    const value = JSON.parse((await body(req)).toString() || '{}');
+    if (!value || typeof value !== 'object' || Array.isArray(value))
+      throw new HttpError(422, 'Un objet JSON est requis.');
+    return value;
   } catch (e) {
     if (e instanceof HttpError) throw e;
     throw new HttpError(400, 'Requête JSON invalide.');
@@ -48,6 +54,7 @@ export function createApp({
   secure = false,
   registration = true,
   dist = resolve('dist'),
+  mailMode = 'disabled',
 } = {}) {
   const db = openDatabase(directory);
   const files = join(directory, 'files');
@@ -56,6 +63,12 @@ export function createApp({
   const one = (sql, ...args) => db.prepare(sql).get(...args);
   const all = (sql, ...args) => db.prepare(sql).all(...args);
   const run = (sql, ...args) => db.prepare(sql).run(...args);
+  transaction(db, () => {
+    for (const o of all(
+      "SELECT org_id,user_id FROM memberships WHERE role='org_admin' GROUP BY org_id",
+    ))
+      seedTemplates(run, o.org_id, o.user_id);
+  });
   function session(req) {
     const cookie = req.headers.cookie
       ?.split(';')
@@ -65,7 +78,7 @@ export function createApp({
     const s =
       cookie &&
       one(
-        'SELECT s.*,u.name,u.email,m.role,o.name org_name FROM sessions s JOIN users u ON u.id=s.user_id JOIN memberships m ON m.user_id=s.user_id AND m.org_id=s.org_id JOIN organizations o ON o.id=s.org_id WHERE s.id=? AND s.expires_at>?',
+        'SELECT s.*,u.name,u.email,u.email_verified_at,u.platform_admin,m.role,o.name org_name FROM sessions s JOIN users u ON u.id=s.user_id JOIN memberships m ON m.user_id=s.user_id AND m.org_id=s.org_id JOIN organizations o ON o.id=s.org_id WHERE s.id=? AND s.expires_at>?',
         hash(cookie),
         Date.now(),
       );
@@ -81,6 +94,8 @@ export function createApp({
       org_name: s.org_name,
       role: s.role,
       permissions: permissions[s.role],
+      email_verified: !!s.email_verified_at,
+      platform_admin: !!s.platform_admin,
     };
   }
   function setSession(res, userId, orgId) {
@@ -119,6 +134,11 @@ export function createApp({
     if (s.role === 'project_manager' && p.owner_id !== s.user_id)
       throw new HttpError(403, 'Seul le responsable peut modifier ce projet.');
   }
+  function publicProject(p, s) {
+    if (s.role !== 'reader') return p;
+    const { budget_cents, ...shared } = p;
+    return shared;
+  }
   function taskWrite(s, p, t) {
     if (s.role === 'contributor') {
       if (t.assignee_id !== s.user_id)
@@ -136,7 +156,42 @@ export function createApp({
       id,
       now(),
     );
+    if (action === 'Tâche créée' || action === 'Tâche mise à jour') {
+      const t = one('SELECT * FROM tasks WHERE id=? AND org_id=?', id, s.org_id);
+      if (t?.assignee_id && t.assignee_id !== s.user_id)
+        modules.notify(
+          s,
+          t.assignee_id,
+          p,
+          `Tâche ${action === 'Tâche créée' ? 'attribuée' : 'modifiée'} : ${t.title}`,
+          id,
+          `task:${id}:${t.revision}`,
+        );
+    }
   }
+  const modules = businessModules({
+    db,
+    one,
+    all,
+    run,
+    project,
+    projectWrite,
+    audit,
+    payload,
+    json,
+    files,
+  });
+  const accounts = accountsModule({
+    db,
+    one,
+    all,
+    run,
+    payload,
+    json,
+    directory,
+    origin,
+    mailMode,
+  });
   function taskInput(b, s, p) {
     const start = date(b.start_date, 'Date de début'),
       end = date(b.end_date, 'Date de fin');
@@ -187,6 +242,21 @@ export function createApp({
           throw new HttpError(403, 'Origine de la requête non autorisée.');
         if (path === '/api/health' && method === 'GET') return json(res, 200, { ok: true });
         if (
+          method === 'POST' &&
+          ['/api/auth/forgot', '/api/auth/reset', '/api/auth/verify'].includes(path)
+        ) {
+          const key = req.socket.remoteAddress + ':recovery',
+            stamp = Date.now();
+          let rate = attempts.get(key);
+          if (!rate || rate.until < stamp) {
+            rate = { count: 0, until: stamp + 900000 };
+            attempts.set(key, rate);
+          }
+          if (++rate.count > 20)
+            throw new HttpError(429, 'Trop de tentatives. Réessayez dans 15 minutes.');
+        }
+        if (await accounts.publicRoute(req, res, url)) return;
+        if (
           ['/api/auth/register', '/api/auth/login', '/api/auth/accept'].includes(path) &&
           method === 'POST'
         ) {
@@ -230,8 +300,20 @@ export function createApp({
             if (!inv || inv.email !== address)
               throw new HttpError(422, 'Invitation invalide ou expirée.');
             transaction(db, () => {
-              run('INSERT INTO users VALUES (?,?,?,?,?)', id, address, name, encrypted, now());
-              run('INSERT INTO memberships VALUES (?,?,?)', inv.org_id, id, inv.role);
+              run(
+                'INSERT INTO users(id,email,name,password_hash,created_at) VALUES (?,?,?,?,?)',
+                id,
+                address,
+                name,
+                encrypted,
+                now(),
+              );
+              run(
+                'INSERT INTO memberships(org_id,user_id,role) VALUES (?,?,?)',
+                inv.org_id,
+                id,
+                inv.role,
+              );
               run('DELETE FROM invitations WHERE id=?', inv.id);
             });
             setSession(res, id, inv.org_id);
@@ -243,13 +325,28 @@ export function createApp({
           const orgId = randomUUID();
           transaction(db, () => {
             run('INSERT INTO organizations VALUES (?,?,?)', orgId, org, now());
-            run('INSERT INTO users VALUES (?,?,?,?,?)', id, address, name, encrypted, now());
-            run('INSERT INTO memberships VALUES (?,?,?)', orgId, id, 'org_admin');
+            run(
+              'INSERT INTO users(id,email,name,password_hash,created_at) VALUES (?,?,?,?,?)',
+              id,
+              address,
+              name,
+              encrypted,
+              now(),
+            );
+            run(
+              'INSERT INTO memberships(org_id,user_id,role) VALUES (?,?,?)',
+              orgId,
+              id,
+              'org_admin',
+            );
+            seedTemplates(run, orgId, id);
           });
           setSession(res, id, orgId);
           return json(res, 201, { ok: true });
         }
         const s = session(req);
+        if (await accounts.route(req, res, url, s)) return;
+        if (await modules.route(req, res, url, s)) return;
         if (path === '/api/me' && method === 'GET') return json(res, 200, user(s));
         if (path === '/api/auth/logout' && method === 'POST') {
           run('DELETE FROM sessions WHERE id=?', s.id);
@@ -297,9 +394,9 @@ export function createApp({
             res,
             200,
             all(
-              `SELECT p.*,u.name owner_name,(SELECT COUNT(*) FROM tasks t WHERE t.project_id=p.id) task_count,COALESCE((SELECT ROUND(AVG(progress)) FROM tasks t WHERE t.project_id=p.id),0) progress FROM projects p JOIN users u ON u.id=p.owner_id WHERE p.org_id=? ${['org_admin', 'pmo'].includes(s.role) ? '' : 'AND EXISTS(SELECT 1 FROM project_members pm WHERE pm.project_id=p.id AND pm.user_id=?)'} ORDER BY p.created_at DESC`,
+              `SELECT p.*,u.name owner_name,(SELECT COUNT(*) FROM tasks t WHERE t.project_id=p.id) task_count,COALESCE((SELECT ROUND(AVG(progress)) FROM tasks t WHERE t.project_id=p.id),0) progress FROM projects p JOIN users u ON u.id=p.owner_id WHERE p.org_id=? ${url.searchParams.get('archived') === 'true' ? '' : 'AND p.archived_at IS NULL'} ${['org_admin', 'pmo'].includes(s.role) ? '' : 'AND EXISTS(SELECT 1 FROM project_members pm WHERE pm.project_id=p.id AND pm.user_id=?)'} ORDER BY p.created_at DESC`,
               ...(['org_admin', 'pmo'].includes(s.role) ? [s.org_id] : [s.org_id, s.user_id]),
-            ),
+            ).map((p) => publicProject(p, s)),
           );
         if (path === '/api/projects' && method === 'POST') {
           requirePermission(s, 'project:create');
@@ -335,7 +432,7 @@ export function createApp({
             res,
             200,
             all(
-              `SELECT t.*,p.name project_name,p.color FROM tasks t JOIN projects p ON p.id=t.project_id WHERE t.org_id=? AND t.assignee_id=? AND EXISTS(SELECT 1 FROM project_members pm WHERE pm.project_id=t.project_id AND pm.user_id=?) ORDER BY t.end_date`,
+              `SELECT t.*,p.name project_name,p.color FROM tasks t JOIN projects p ON p.id=t.project_id WHERE t.org_id=? AND p.archived_at IS NULL AND t.assignee_id=? AND EXISTS(SELECT 1 FROM project_members pm WHERE pm.project_id=t.project_id AND pm.user_id=?) ORDER BY t.end_date`,
               s.org_id,
               s.user_id,
               s.user_id,
@@ -347,7 +444,7 @@ export function createApp({
         if (match) {
           const [, id, resource, entity, versionResource, versionId] = match;
           const p = project(s, id);
-          if (!resource && method === 'GET') return json(res, 200, p);
+          if (!resource && method === 'GET') return json(res, 200, publicProject(p, s));
           if (!resource && method === 'PATCH') {
             projectWrite(s, p);
             const b = await payload(req);
@@ -456,6 +553,11 @@ export function createApp({
                 );
               const v = taskInput({ ...t, ...b }, s, id);
               transaction(db, () => {
+                if (
+                  one('SELECT revision FROM tasks WHERE id=? AND org_id=?', entity, s.org_id)
+                    ?.revision !== b.revision
+                )
+                  throw new HttpError(409, 'Cette tâche a été modifiée. Rechargez les données.');
                 run(
                   'UPDATE tasks SET title=?,description=?,assignee_id=?,start_date=?,end_date=?,status=?,priority=?,progress=?,milestone=?,revision=revision+1 WHERE id=? AND org_id=?',
                   v.title,
@@ -476,6 +578,11 @@ export function createApp({
             }
             if (method === 'DELETE') {
               projectWrite(s, p);
+              if (one('SELECT id FROM tasks WHERE parent_id=?', entity))
+                throw new HttpError(
+                  422,
+                  'Déplacez ou supprimez les sous-tâches avant cette suppression.',
+                );
               transaction(db, () => {
                 run('DELETE FROM tasks WHERE id=? AND org_id=?', entity, s.org_id);
                 audit(s, id, 'Tâche supprimée', entity);
@@ -489,9 +596,10 @@ export function createApp({
                 res,
                 200,
                 all(
-                  'SELECT d.*,v.id version_id,v.version,v.size,v.created_at updated_at FROM documents d JOIN document_versions v ON v.document_id=d.id WHERE d.org_id=? AND d.project_id=? AND v.version=(SELECT MAX(version) FROM document_versions WHERE document_id=d.id) ORDER BY v.created_at DESC',
+                  "SELECT d.*,v.id version_id,v.version,v.size,v.created_at updated_at FROM documents d JOIN document_versions v ON v.document_id=d.id WHERE d.org_id=? AND d.project_id=? AND (?<>'reader' OR d.audience='project') AND v.version=(SELECT MAX(version) FROM document_versions WHERE document_id=d.id) ORDER BY v.created_at DESC",
                   s.org_id,
                   id,
+                  s.role,
                 ),
               );
             const doc = entity
@@ -502,7 +610,7 @@ export function createApp({
                   id,
                 )
               : null;
-            if (entity && !doc) throw new HttpError(404, 'Document introuvable.');
+            if (entity) modules.document(s, id, entity);
             if (method === 'GET' && entity && versionResource && !versionId)
               return json(
                 res,
@@ -522,6 +630,7 @@ export function createApp({
               );
               if (!v) throw new HttpError(404, 'Version introuvable.');
               const bytes = readFileSync(join(files, v.storage_key));
+              audit(s, id, 'Version documentaire téléchargée', doc.id);
               res.writeHead(200, {
                 'Content-Type': 'application/octet-stream',
                 'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(doc.name)}`,
@@ -532,6 +641,18 @@ export function createApp({
             if (method === 'POST' && (!entity || versionResource)) {
               requirePermission(s, 'document:write');
               const name = doc?.name || text(url.searchParams.get('name'), 'Nom du fichier', 180);
+              const folderId = url.searchParams.get('folder_id') || null;
+              if (
+                !doc &&
+                folderId &&
+                !one(
+                  'SELECT id FROM folders WHERE org_id=? AND project_id=? AND id=?',
+                  s.org_id,
+                  id,
+                  folderId,
+                )
+              )
+                throw new HttpError(422, 'Dossier introuvable.');
               if (/[\x00-\x1f/\\]/.test(name)) throw new HttpError(422, 'Nom de fichier invalide.');
               const bytes = await body(req, 20 * 1024 * 1024);
               if (!bytes.length) throw new HttpError(422, 'Le fichier est vide.');
@@ -542,7 +663,15 @@ export function createApp({
               try {
                 transaction(db, () => {
                   if (!doc)
-                    run('INSERT INTO documents VALUES (?,?,?,?,?)', did, s.org_id, id, name, now());
+                    run(
+                      'INSERT INTO documents(id,org_id,project_id,name,created_at,folder_id) VALUES (?,?,?,?,?,?)',
+                      did,
+                      s.org_id,
+                      id,
+                      name,
+                      now(),
+                      folderId,
+                    );
                   const next = one(
                     'SELECT COALESCE(MAX(version),0)+1 n FROM document_versions WHERE document_id=?',
                     did,

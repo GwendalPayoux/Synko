@@ -37,3 +37,35 @@ Réponse erreur : `{ "error": "message lisible", "request_id": "uuid" }`. Codes 
 Tâche : `title`, `description`, `assignee_id` nullable, `start_date`, `end_date`, `status` (`todo`, `doing`, `review`, `done`), `priority` (`low`, `normal`, `high`), `progress` entier 0–100, `milestone` booléen. Dates ISO, fin ≥ début, jalon avec date unique ; affectataire membre du projet. Le statut `done` impose 100 %. Un contributeur affecté peut modifier uniquement `status`, `progress` et fournir la `revision`. Le lecteur ne peut rien modifier. Tous les accès sont contrôlés côté serveur.
 
 Limites : pas de pagination métier (hormis activité limitée), d’API externe par jeton, d’idempotence des créations ou de transport temps réel. À ajouter avant volumes importants et intégrations externes.
+
+## Routes de l’extension métier
+
+Toutes les routes projet héritent du contrôle d’entreprise et d’appartenance. Administrateur/responsable : édition projet, relations de tâche, budget, modèles, métadonnées/restauration/validation de document, retrait de membre, événements. Collaborateur interne : commentaire, import et liaison documentaire. Validateur désigné uniquement : décision de validation. Lecteur : aucune mutation.
+
+| Route                                                                                          | Usage                                                                                               |
+| ---------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| GET /organizations ; POST /organizations/switch                                                | Appartenances et organisation active                                                                |
+| POST /invitations/accept-existing                                                              | Invitation liée à l’e-mail du compte connecté                                                       |
+| PATCH /members/:id                                                                             | Rôle entreprise ; conserve un administrateur et refuse de rétrograder un responsable sans transfert |
+| GET /sessions ; DELETE /sessions/:id                                                           | Ses sessions et révocation                                                                          |
+| POST /me/password ; POST /me/verification ; GET /me/export                                     | Sécurité et données personnelles                                                                    |
+| GET /auth/capabilities ; POST /auth/forgot ; POST /auth/reset ; POST /auth/verify              | Transport explicite et jetons de compte                                                             |
+| GET /platform/organizations                                                                    | Registre opérateur explicitement habilité                                                           |
+| PATCH /projects/:id                                                                            | Informations générales, responsable, statut, archived booléen                                       |
+| DELETE /projects/:id/members/:uid                                                              | Retrait avec désaffectation des tâches                                                              |
+| GET /projects/:id/planning                                                                     | Dépendances et conflits                                                                             |
+| GET/PATCH /projects/:id/tasks/:tid/details                                                     | Hiérarchie, prédécesseurs, effort, commentaires et historique ; PATCH exige revision                |
+| POST /projects/:id/tasks/:tid/comments ou attachments                                          | Commentaire ou lien documentaire                                                                    |
+| GET /projects/:id/budget ; POST budget/revisions ou budget/entries ; PATCH budget/entries/:eid | Calcul centralisé, révisions, écritures et reclassement                                             |
+| GET/POST /projects/:id/folders ; PATCH folders/:fid                                            | Dossiers et hiérarchie                                                                              |
+| PATCH /projects/:id/documents/:did                                                             | Métadonnées, dossier, archivage, audience project/internal                                          |
+| GET documents/:did/details ou preview ; POST documents/:did/comments ou restore ou approvals   | Détails, aperçu texte, commentaire, restauration et demande de validation                           |
+| PATCH /projects/:id/approvals/:aid                                                             | Décision approved/rejected, motif requis pour refus                                                 |
+| GET /events ; POST /projects/:id/events ; DELETE /projects/:id/events/:eid                     | Événements accessibles                                                                              |
+| GET /notifications ; PATCH /notifications/:nid                                                 | Notifications persistantes, read booléen                                                            |
+| GET /templates ; POST /projects/:id/template ; POST /templates/:id/instantiate                 | Bibliothèque et copie de structure à dates relatives                                                |
+| GET /portfolio                                                                                 | Vue transverse PMO/admin                                                                            |
+| GET/POST /availability ; DELETE /availability/:id ; PATCH /capacity                            | Indisponibilités et capacité horaire                                                                |
+| GET /projects/:id/workload                                                                     | Charge du projet, sur 7 jours, capacités ajustées des absences                                      |
+
+Les chemins documentaires abrégés dans le tableau sont relatifs à /projects/:id. Les tests d’intégration fournissent des requêtes exécutables avec champs, réponses et contrôles négatifs.

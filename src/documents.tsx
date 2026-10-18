@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { FileText, Upload, Download, History, FolderOpen } from 'lucide-react';
-import { api, type Document, type Version, type Project } from './domain';
-import { Empty, Modal } from './components';
+import { api, type Document, type Version, type Project, type User } from './domain';
+import { Empty, Modal, Field } from './components';
+import { DocumentDetails, type Folder } from './modules';
 const size = (n: number) =>
   n < 1024
     ? n + ' o'
@@ -12,10 +13,12 @@ export function Documents({
   project,
   canWrite,
   onError,
+  user,
 }: {
   project: Project;
   canWrite: boolean;
   onError: (s: string) => void;
+  user: User;
 }) {
   const [docs, setDocs] = useState<Document[]>([]),
     [versions, setVersions] = useState<Version[]>([]),
@@ -23,11 +26,19 @@ export function Documents({
     [busy, setBusy] = useState(false),
     [loading, setLoading] = useState(true),
     [query, setQuery] = useState('');
+  const [folders, setFolders] = useState<Folder[]>([]),
+    [folder, setFolder] = useState(''),
+    [archived, setArchived] = useState(false),
+    [folderEdit, setFolderEdit] = useState<
+      Folder | { id: string; name: string; parent_id: string | null } | null
+    >(null),
+    [restore, setRestore] = useState<Version | null>(null);
   const input = useRef<HTMLInputElement>(null),
     [target, setTarget] = useState<Document | null>(null);
   const base = `/projects/${project.id}/documents`;
   async function load() {
     setDocs(await api<Document[]>(base));
+    setFolders(await api<Folder[]>(`/projects/${project.id}/folders`));
   }
   useEffect(() => {
     setLoading(true);
@@ -46,7 +57,9 @@ export function Documents({
       const response = await fetch(
         '/api' +
           base +
-          (target ? `/${target.id}/versions` : `?name=${encodeURIComponent(file.name)}`),
+          (target
+            ? `/${target.id}/versions`
+            : `?name=${encodeURIComponent(file.name)}&folder_id=${encodeURIComponent(folder === 'all' ? '' : folder)}`),
         { method: 'POST', body: file, headers: { 'Content-Type': 'application/octet-stream' } },
       );
       const result = await response.json();
@@ -93,6 +106,50 @@ export function Documents({
         <input ref={input} type="file" hidden onChange={(e) => upload(e.target.files?.[0])} />
       </div>
       <div className="document-search">
+        <select
+          aria-label="Dossier courant"
+          value={folder}
+          onChange={(e) => setFolder(e.target.value)}
+        >
+          <option value="">Racine</option>
+          <option value="all">Tous les dossiers</option>
+          {folders.map((f) => (
+            <option key={f.id} value={f.id}>
+              {f.parent_id ? '↳ ' : ''}
+              {f.name}
+            </option>
+          ))}
+        </select>
+        {canWrite && (
+          <button
+            className="secondary"
+            onClick={() =>
+              setFolderEdit({
+                id: '',
+                name: '',
+                parent_id: folder && folder !== 'all' ? folder : null,
+              })
+            }
+          >
+            Nouveau dossier
+          </button>
+        )}
+        {canWrite && folders.some((f) => f.id === folder) && (
+          <button
+            className="secondary"
+            onClick={() => setFolderEdit(folders.find((f) => f.id === folder)!)}
+          >
+            Modifier le dossier
+          </button>
+        )}
+        <label className="check-field">
+          <input
+            type="checkbox"
+            checked={archived}
+            onChange={(e) => setArchived(e.target.checked)}
+          />
+          Archives
+        </label>
         <input
           aria-label="Rechercher un document"
           placeholder="Rechercher un document…"
@@ -122,7 +179,12 @@ export function Documents({
             </thead>
             <tbody>
               {docs
-                .filter((d) => d.name.toLowerCase().includes(query.toLowerCase()))
+                .filter(
+                  (d) =>
+                    d.name.toLowerCase().includes(query.toLowerCase()) &&
+                    (folder === 'all' || (d.folder_id || '') === folder) &&
+                    !!d.archived_at === archived,
+                )
                 .map((d) => (
                   <tr key={d.id}>
                     <td>
@@ -189,9 +251,87 @@ export function Documents({
                   <Download size={16} />
                   Télécharger
                 </a>
+                {(user.role === 'org_admin' ||
+                  (user.role === 'project_manager' && project.owner_id === user.id)) && (
+                  <button className="secondary" onClick={() => setRestore(v)}>
+                    Restaurer v{v.version}
+                  </button>
+                )}
               </article>
             ))}
           </div>
+          {restore && (
+            <div className="confirm">
+              <p>Restaurer la version {restore.version} en créant une nouvelle version ?</p>
+              <button className="secondary" onClick={() => setRestore(null)}>
+                Annuler
+              </button>
+              <button
+                className="primary"
+                onClick={async () => {
+                  try {
+                    await api(`${base}/${selected.id}/restore`, 'POST', { version_id: restore.id });
+                    await load();
+                    await history(selected);
+                    setRestore(null);
+                  } catch (e) {
+                    onError((e as Error).message);
+                  }
+                }}
+              >
+                Confirmer la restauration
+              </button>
+            </div>
+          )}
+          <DocumentDetails
+            documentId={selected.id}
+            project={project}
+            user={user}
+            folders={folders}
+            onError={onError}
+            onChanged={load}
+          />
+        </Modal>
+      )}
+      {folderEdit && (
+        <Modal
+          title={folderEdit.id ? 'Modifier le dossier' : 'Créer un dossier'}
+          onClose={() => setFolderEdit(null)}
+        >
+          <form
+            onSubmit={async (e) => {
+              e.preventDefault();
+              const b = Object.fromEntries(new FormData(e.currentTarget));
+              try {
+                await api(
+                  `/projects/${project.id}/folders${folderEdit.id ? '/' + folderEdit.id : ''}`,
+                  folderEdit.id ? 'PATCH' : 'POST',
+                  b,
+                );
+                await load();
+                setFolderEdit(null);
+              } catch (e) {
+                onError((e as Error).message);
+              }
+            }}
+          >
+            <Field label="Nom du dossier">
+              <input name="name" defaultValue={folderEdit.name} required maxLength={120} />
+            </Field>
+            <Field label="Dossier parent">
+              <select name="parent_id" defaultValue={folderEdit.parent_id || ''}>
+                <option value="">Racine</option>
+                {folders
+                  .filter((f) => f.id !== folderEdit.id)
+                  .map((f) => (
+                    <option key={f.id} value={f.id}>
+                      {f.name}
+                    </option>
+                  ))}
+              </select>
+            </Field>
+            <button className="primary">Enregistrer le dossier</button>
+          </form>
         </Modal>
       )}
     </section>

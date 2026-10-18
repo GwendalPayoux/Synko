@@ -6,6 +6,8 @@ export type User = {
   org_name: string;
   role: string;
   permissions: string[];
+  email_verified?: boolean;
+  platform_admin?: boolean;
 };
 export type Project = {
   id: string;
@@ -20,6 +22,7 @@ export type Project = {
   color: string;
   progress: number;
   task_count: number;
+  archived_at?: string | null;
 };
 export type Task = {
   id: string;
@@ -36,6 +39,8 @@ export type Task = {
   progress: number;
   milestone: number;
   revision: number;
+  parent_id?: string | null;
+  effort_hours?: number;
 };
 export type Member = { id: string; name: string; email: string; role: string };
 export type Document = {
@@ -45,6 +50,9 @@ export type Document = {
   version: number;
   size: number;
   updated_at: string;
+  folder_id?: string | null;
+  archived_at?: string | null;
+  audience?: string;
 };
 export type Version = {
   id: string;

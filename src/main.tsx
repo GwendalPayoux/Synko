@@ -49,7 +49,22 @@ import { Auth } from './auth';
 import { Calendar } from './calendar';
 import { TaskEditor, TaskList, Kanban, Gantt, AddTaskButton } from './tasks';
 import { Documents } from './documents';
+import {
+  ProjectSettings,
+  Budget,
+  NotificationCenter,
+  TeamManagement,
+  EventsPanel,
+  Templates,
+  OrganizationRoles,
+  Sessions,
+  AccountSettings,
+  PlatformAdmin,
+  type Notice,
+} from './modules';
 import './styles.css';
+import './modules.css';
+import { Portfolio, Availability } from './portfolio';
 const navigation = [
   { id: 'dashboard', label: 'Mon espace', icon: LayoutDashboard },
   { id: 'projects', label: 'Projets', icon: FolderKanban },
@@ -85,6 +100,11 @@ function App() {
     [saveState, setSaveState] = useState(''),
     [notifications, setNotifications] = useState(false),
     [taskFilter, setTaskFilter] = useState('all');
+  const [notices, setNotices] = useState<Notice[]>([]);
+  const [showArchived, setShowArchived] = useState(false);
+  async function refreshNotices() {
+    setNotices(await api<Notice[]>('/notifications'));
+  }
   const project = projects.find((p) => p.id === projectId);
   const canCreate = user?.permissions.includes('project:create');
   const full =
@@ -100,13 +120,14 @@ function App() {
       (user.role === 'contributor' && t.assignee_id === user.id));
   async function refresh() {
     const [p, t, m] = await Promise.all([
-      api<Project[]>('/projects'),
+      api<Project[]>('/projects?archived=true'),
       api<Task[]>('/tasks'),
       api<Member[]>('/members'),
     ]);
     setProjects(p);
     setPersonal(t);
     setOrgMembers(m);
+    await refreshNotices();
   }
   async function refreshProject(id: string) {
     const [t, m, a] = await Promise.all([
@@ -134,6 +155,25 @@ function App() {
   useEffect(() => {
     login();
   }, []);
+  useEffect(() => {
+    if (!user) return;
+    try {
+      const p = JSON.parse(localStorage.getItem('synko:preferences:' + user.id) || '{}');
+      if (p.layout) setLayout(p.layout);
+      if (p.sort) setSort(p.sort);
+      if (p.filter) setFilter(p.filter);
+      if (p.taskFilter) setTaskFilter(p.taskFilter);
+    } catch {}
+  }, [user?.id]);
+  useEffect(() => {
+    if (!user) return;
+    try {
+      localStorage.setItem(
+        'synko:preferences:' + user.id,
+        JSON.stringify({ layout, sort, filter, taskFilter }),
+      );
+    } catch {}
+  }, [user?.id, layout, sort, filter, taskFilter]);
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     localStorage.setItem('synko:theme', theme);
@@ -256,7 +296,7 @@ function App() {
   const upcoming = personal.filter(
     (t) => t.end_date >= today() && t.end_date <= shiftDate(today(), 7) && t.status !== 'done',
   );
-  const active = projects.filter((p) => p.status === 'active');
+  const active = projects.filter((p) => p.status === 'active' && !p.archived_at);
   if (boot)
     return (
       <div className="boot">
@@ -282,6 +322,7 @@ function App() {
   const shownProjects = projects
     .filter(
       (p) =>
+        (showArchived ? !!p.archived_at : !p.archived_at) &&
         p.name.toLowerCase().includes(query.toLowerCase()) &&
         (filter === 'all' ||
           (filter === 'favorites' && favorites.includes(p.id)) ||
@@ -387,7 +428,9 @@ function App() {
             <Avatar name={user.name} />
             <div>
               <strong>{user.name}</strong>
-              <small>{roleLabels[user.role]}</small>
+              <small>
+                {user.platform_admin ? 'Administrateur plateforme' : roleLabels[user.role]}
+              </small>
             </div>
             <ChevronRight size={15} />
           </button>
@@ -432,35 +475,28 @@ function App() {
             <button
               className="icon-button notification-button"
               aria-label="Échéances à surveiller"
-              onClick={() => setNotifications(!notifications)}
+              onClick={() => {
+                setNotifications(!notifications);
+                refreshNotices().catch((e) => setError(e.message));
+              }}
             >
               <Bell size={18} />
-              {overdue.length > 0 && <i />}
+              {notices.some((n) => !n.read_at) && <i />}
             </button>
             <Avatar name={user.name} small />
           </div>
         </header>
         {notifications && (
-          <div className="notification-popover panel">
-            <h3>Échéances à surveiller</h3>
-            <p className="muted">Alertes calculées à partir de vos tâches.</p>
-            {[...overdue, ...upcoming].slice(0, 6).map((t) => (
-              <button
-                key={t.id}
-                onClick={() => {
-                  openTask(t);
-                  setNotifications(false);
-                }}
-              >
-                <span>{t.title}</span>
-                <small>{displayDate(t.end_date)}</small>
-              </button>
-            ))}
-            {!overdue.length && !upcoming.length && <p>Aucune échéance urgente.</p>}
-            <small className="muted">
-              Centre de notifications avec lecture : prévu ultérieurement.
-            </small>
-          </div>
+          <NotificationCenter
+            items={notices}
+            onRefresh={refreshNotices}
+            onError={setError}
+            onOpen={(id) => {
+              const p = projects.find((p) => p.id === id);
+              if (p) openProject(p);
+              setNotifications(false);
+            }}
+          />
         )}
         <main>
           {page === 'dashboard' && !project && (
@@ -623,6 +659,15 @@ function App() {
                   </button>
                 )}
               </div>
+              {['org_admin', 'pmo'].includes(user.role) && (
+                <Portfolio
+                  onError={setError}
+                  onOpen={(id) => {
+                    const p = projects.find((p) => p.id === id);
+                    if (p) openProject(p);
+                  }}
+                />
+              )}
               <div className="portfolio-summary">
                 <span>
                   <strong>{projects.length}</strong>projets au total
@@ -636,6 +681,24 @@ function App() {
                   <strong>{projects.filter((p) => p.status === 'completed').length}</strong>clôturés
                 </span>
               </div>
+              <label className="check-field">
+                <input
+                  type="checkbox"
+                  checked={showArchived}
+                  onChange={(e) => setShowArchived(e.target.checked)}
+                />
+                Voir les projets archivés
+              </label>
+              {canCreate && (
+                <Templates
+                  onError={setError}
+                  onSaved={saved}
+                  onCreated={(id) => {
+                    setProjectId(id);
+                    setTab('gantt');
+                  }}
+                />
+              )}
               <div className="toolbar">
                 <div className="search-input">
                   <Search size={17} />
@@ -762,6 +825,9 @@ function App() {
                   { id: 'list', label: 'Liste', icon: List },
                   { id: 'documents', label: 'Documents', icon: Files },
                   { id: 'team', label: 'Équipe', icon: Users },
+                  ...(user.role !== 'reader'
+                    ? [{ id: 'budget', label: 'Budget', icon: ChartNoAxesCombined }]
+                    : []),
                   { id: 'overview', label: 'Vue d’ensemble', icon: ChartNoAxesCombined },
                   { id: 'settings', label: 'Paramètres', icon: Settings },
                 ].map((t) => (
@@ -857,52 +923,66 @@ function App() {
                   )}
                   {tab === 'documents' && (
                     <Documents
+                      user={user}
                       project={project}
                       canWrite={user.permissions.includes('document:write')}
                       onError={setError}
                     />
                   )}
                   {tab === 'team' && (
-                    <section className="panel">
-                      <div className="panel-head">
-                        <div>
-                          <h3>Une équipe, un objectif</h3>
-                          <span className="muted">Les membres qui peuvent accéder à ce projet</span>
-                        </div>
-                      </div>
-                      <div className="member-grid">
-                        {members.map((m) => (
-                          <article key={m.id}>
-                            <Avatar name={m.name} />
-                            <strong>{m.name}</strong>
-                            <span>{roleLabels[m.role]}</span>
-                            <small>{m.email}</small>
-                          </article>
-                        ))}
-                      </div>
-                      {full && (
-                        <div className="add-member">
-                          <select
-                            aria-label="Membre à ajouter"
-                            value={newMember}
-                            onChange={(e) => setNewMember(e.target.value)}
-                          >
-                            <option value="">Choisir un membre de l’entreprise</option>
-                            {orgMembers
-                              .filter((m) => !members.some((pm) => pm.id === m.id))
-                              .map((m) => (
-                                <option key={m.id} value={m.id}>
-                                  {m.name}
-                                </option>
-                              ))}
-                          </select>
-                          <button className="secondary" disabled={!newMember} onClick={addMember}>
-                            <Plus size={16} />
-                            Ajouter au projet
-                          </button>
-                        </div>
+                    <>
+                      {user.role !== 'reader' && (
+                        <TeamManagement
+                          project={project}
+                          user={user}
+                          members={members}
+                          onError={setError}
+                          onSaved={saved}
+                        />
                       )}
-                    </section>
+                      <section className="panel">
+                        <div className="panel-head">
+                          <div>
+                            <h3>Une équipe, un objectif</h3>
+                            <span className="muted">
+                              Les membres qui peuvent accéder à ce projet
+                            </span>
+                          </div>
+                        </div>
+                        <div className="member-grid">
+                          {members.map((m) => (
+                            <article key={m.id}>
+                              <Avatar name={m.name} />
+                              <strong>{m.name}</strong>
+                              <span>{roleLabels[m.role]}</span>
+                              <small>{m.email}</small>
+                            </article>
+                          ))}
+                        </div>
+                        {full && (
+                          <div className="add-member">
+                            <select
+                              aria-label="Membre à ajouter"
+                              value={newMember}
+                              onChange={(e) => setNewMember(e.target.value)}
+                            >
+                              <option value="">Choisir un membre de l’entreprise</option>
+                              {orgMembers
+                                .filter((m) => !members.some((pm) => pm.id === m.id))
+                                .map((m) => (
+                                  <option key={m.id} value={m.id}>
+                                    {m.name}
+                                  </option>
+                                ))}
+                            </select>
+                            <button className="secondary" disabled={!newMember} onClick={addMember}>
+                              <Plus size={16} />
+                              Ajouter au projet
+                            </button>
+                          </div>
+                        )}
+                      </section>
+                    </>
                   )}
                   {tab === 'overview' && (
                     <div className="overview-grid">
@@ -921,19 +1001,20 @@ function App() {
                             {tasks.length}
                           </p>
                         </div>
-                        <div className="budget-note">
-                          <h4>Budget initial</h4>
-                          <strong>
-                            {new Intl.NumberFormat('fr-FR', {
-                              style: 'currency',
-                              currency: 'EUR',
-                            }).format(project.budget_cents / 100)}
-                          </strong>
-                          <p className="muted">
-                            Le suivi des dépenses et des engagements est prévu dans une prochaine
-                            étape.
-                          </p>
-                        </div>
+                        {user.role !== 'reader' && (
+                          <div className="budget-note">
+                            <h4>Budget initial</h4>
+                            <strong>
+                              {new Intl.NumberFormat('fr-FR', {
+                                style: 'currency',
+                                currency: 'EUR',
+                              }).format(project.budget_cents / 100)}
+                            </strong>
+                            <p className="muted">
+                              Retrouvez les dépenses, engagements et révisions dans l’onglet Budget.
+                            </p>
+                          </div>
+                        )}
                       </section>
                       <section className="panel">
                         <div className="panel-head">
@@ -956,35 +1037,26 @@ function App() {
                     </div>
                   )}
                   {tab === 'settings' && (
-                    <section className="panel settings-panel">
-                      <h3>Cycle de vie du projet</h3>
-                      <p className="muted">Mettez le projet en pause ou marquez sa clôture.</p>
-                      <Field label="Statut du projet">
-                        <select
-                          disabled={!full}
-                          value={project.status}
-                          onChange={async (e) => {
-                            try {
-                              await api(`/projects/${project.id}`, 'PATCH', {
-                                status: e.target.value,
-                              });
-                              await saved();
-                            } catch (e) {
-                              setError((e as Error).message);
-                            }
-                          }}
-                        >
-                          <option value="active">En cours</option>
-                          <option value="paused">En pause</option>
-                          <option value="completed">Clôturé</option>
-                        </select>
-                      </Field>
-                      <p>Responsable : {project.owner_name}</p>
-                      <p className="muted">
-                        L’édition des informations générales et l’archivage seront ajoutés
-                        ultérieurement.
-                      </p>
-                    </section>
+                    <>
+                      <ProjectSettings
+                        project={project}
+                        user={user}
+                        members={orgMembers}
+                        onError={setError}
+                        onSaved={saved}
+                      />
+                      {full && (
+                        <Templates
+                          project={project}
+                          onError={setError}
+                          onSaved={saved}
+                          onCreated={() => {}}
+                        />
+                      )}
+                    </>
+                  )}
+                  {tab === 'budget' && user.role !== 'reader' && (
+                    <Budget project={project} user={user} onError={setError} onSaved={saved} />
                   )}
                 </>
               )}
@@ -1002,6 +1074,7 @@ function App() {
                 </div>
               </div>
               <Calendar tasks={personal} onTask={openTask} large />
+              <EventsPanel projects={projects} user={user} onError={setError} onSaved={saved} />
             </>
           )}
           {page === 'documents' && !project && (
@@ -1054,7 +1127,8 @@ function App() {
                     <span className="greeting-dot">.</span>
                   </h1>
                   <p>
-                    {user.org_name} · {roleLabels[user.role]}
+                    {user.org_name} ·{' '}
+                    {user.platform_admin ? 'Administrateur plateforme' : roleLabels[user.role]}
                   </p>
                 </div>
               </div>
@@ -1087,6 +1161,9 @@ function App() {
                   </form>
                   <hr />
                   <h3>Sessions</h3>
+                  <Sessions onError={setError} />
+                  <AccountSettings user={user} onError={setError} />
+                  <Availability user={user} onError={setError} />
                   <p className="muted">Les sessions expirent automatiquement après 7 jours.</p>
                   <button className="secondary" onClick={() => logout()}>
                     <LogOut size={16} />
@@ -1112,17 +1189,18 @@ function App() {
                       </button>
                     )}
                   </div>
-                  {orgMembers.map((m) => (
-                    <div className="org-member" key={m.id}>
-                      <Avatar name={m.name} small />
-                      <div>
-                        <strong>{m.name}</strong>
-                        <small>{roleLabels[m.role]}</small>
-                      </div>
-                    </div>
-                  ))}
+                  <OrganizationRoles
+                    members={orgMembers}
+                    user={user}
+                    onError={setError}
+                    onSaved={async () => {
+                      setUser(await api<User>('/me'));
+                      await saved();
+                    }}
+                  />
                   <hr />
                   <h3>Services connectés</h3>
+                  {user.platform_admin && <PlatformAdmin onError={setError} />}
                   <p className="muted">
                     IA, e-mail transactionnel, Google Calendar et Outlook : non configurés. Aucune
                     donnée n’est envoyée à ces services.

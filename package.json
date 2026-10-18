@@ -1,6 +1,6 @@
 {
   "name": "synko",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "engines": {
@@ -15,7 +15,9 @@
     "test": "node --test test/*.test.mjs",
     "test:e2e": "playwright test",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "backup:local": "node scripts/backup.mjs",
+    "restore:local": "node scripts/restore.mjs"
   },
   "dependencies": {
     "lucide-react": "^0.468.0",
