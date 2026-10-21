@@ -1,3 +1,7 @@
+import { CreateProject } from './create-project';
+import { ProjectIcon } from './project-icons';
+import { ActionTooltips } from './tooltips';
+import { PlatformBackoffice } from './platform-admin';
 import { SettingsPage } from './settings';
 import React, { useEffect, useState, type FormEvent } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -8,6 +12,7 @@ import {
   CalendarDays,
   Files,
   Settings,
+  ShieldCheck,
   Plus,
   Search,
   ChevronRight,
@@ -96,6 +101,10 @@ function App() {
     [saveState, setSaveState] = useState(''),
     [notifications, setNotifications] = useState(false),
     [taskFilter, setTaskFilter] = useState('all');
+  const [documentTarget, setDocumentTarget] = useState<string | null>(null);
+  const [notificationEvent, setNotificationEvent] = useState<import('./modules').EventItem | null>(
+    null,
+  );
   const [eventRequest, setEventRequest] = useState(0);
   const [notices, setNotices] = useState<Notice[]>([]);
   const [showArchived, setShowArchived] = useState(false);
@@ -125,6 +134,7 @@ function App() {
     setPersonal(t);
     setOrgMembers(m);
     await refreshNotices();
+    return p;
   }
   async function refreshProject(id: string) {
     const [t, m, a] = await Promise.all([
@@ -142,7 +152,13 @@ function App() {
       const u = await api<User>('/me');
       setUser(u);
       setFavorites(JSON.parse(localStorage.getItem('synko:favorites:' + u.id) || '[]'));
-      await refresh();
+      const ps = await refresh();
+      const requested = sessionStorage.getItem('synko:open-project');
+      if (requested) {
+        sessionStorage.removeItem('synko:open-project');
+        const p = ps.find((p) => p.id === requested);
+        if (p) openProject(p);
+      }
     } catch (e) {
       if ((e as Error).message !== 'Veuillez vous connecter.') setError((e as Error).message);
     } finally {
@@ -188,6 +204,7 @@ function App() {
     setProjectId(null);
     setMobile(false);
     setQuery('');
+    setDocumentTarget(null);
   }
   function openProject(p: Project) {
     setTasks([]);
@@ -197,6 +214,7 @@ function App() {
     setPage('projects');
     setTab('gantt');
     setQuery('');
+    setDocumentTarget(null);
   }
   function favorite(id: string) {
     const next = favorites.includes(id) ? favorites.filter((i) => i !== id) : [...favorites, id];
@@ -234,38 +252,48 @@ function App() {
       setError((e as Error).message);
     }
   }
+  async function openNotification(n: Notice) {
+    const target = await api<{ type: string; project_id: string; entity_id: string }>(
+      '/notifications/' + n.id + '/target',
+    );
+    const ps = await api<Project[]>('/projects?archived=true');
+    setProjects(ps);
+    const p = ps.find((p) => p.id === target.project_id);
+    if (!p) throw new Error('Le projet n’est plus accessible.');
+    if (target.type === 'task') {
+      const [d, m] = await Promise.all([
+        api<{ task: Task }>(`/projects/${p.id}/tasks/${target.entity_id}/details`),
+        api<Member[]>(`/projects/${p.id}/members`),
+      ]);
+      setMembers(m);
+      setEditing({ project: p, task: d.task });
+    } else if (target.type === 'document') {
+      openProject(p);
+      setTab('documents');
+      setDocumentTarget(target.entity_id);
+    } else if (target.type === 'event') {
+      setNotificationEvent(
+        await api<import('./modules').EventItem>(`/projects/${p.id}/events/${target.entity_id}`),
+      );
+    } else openProject(p);
+    await api('/notifications/' + n.id, 'PATCH', { read: true });
+    await refreshNotices();
+    setNotifications(false);
+  }
   async function logout(all = false) {
     try {
       await api(all ? '/auth/logout-all' : '/auth/logout', 'POST', {});
       setUser(null);
+      setEditing(null);
+      setNotificationEvent(null);
+      setNotifications(false);
+      setDocumentTarget(null);
       setProjects([]);
       setPersonal([]);
       setProjectId(null);
       setTasks([]);
     } catch (e) {
       setError((e as Error).message);
-    }
-  }
-  async function createProject(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    const form = e.currentTarget;
-    const b = Object.fromEntries(new FormData(form));
-    const button = form.querySelector('button[type="submit"]') as HTMLButtonElement;
-    button.disabled = true;
-    try {
-      const p = await api<{ id: string }>('/projects', 'POST', {
-        ...b,
-        budget_cents: Math.round(Number(b.budget || 0) * 100),
-      });
-      await refresh();
-      setCreating(false);
-      setProjectId(p.id);
-      setPage('projects');
-      setTab('gantt');
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      button.disabled = false;
     }
   }
   async function addMember() {
@@ -340,6 +368,7 @@ function App() {
   );
   return (
     <div className="app">
+      <ActionTooltips />
       <aside className={'sidebar ' + (mobile ? 'open' : '')}>
         <div className="brand">
           <span className="brand-mark">
@@ -422,6 +451,15 @@ function App() {
             <Settings size={18} />
             Paramètres
           </button>
+          {user.platform_admin && (
+            <button
+              className={page === 'platform' ? 'active settings-link' : 'settings-link'}
+              onClick={() => go('platform')}
+            >
+              <ShieldCheck size={18} />
+              Administration Synko
+            </button>
+          )}
           <div className="profile sidebar-identity">
             <Avatar name={user.name} />
             <div>
@@ -452,9 +490,11 @@ function App() {
                 ? project.name
                 : page === 'dashboard'
                   ? 'Mon espace'
-                  : page === 'settings'
-                    ? 'Paramètres'
-                    : navigation.find((n) => n.id === page)?.label}
+                  : page === 'platform'
+                    ? 'Administration Synko'
+                    : page === 'settings'
+                      ? 'Paramètres'
+                      : navigation.find((n) => n.id === page)?.label}
             </strong>
           </div>
           <div className="topbar-actions">
@@ -487,11 +527,7 @@ function App() {
             items={notices}
             onRefresh={refreshNotices}
             onError={setError}
-            onOpen={(id) => {
-              const p = projects.find((p) => p.id === id);
-              if (p) openProject(p);
-              setNotifications(false);
-            }}
+            onOpen={openNotification}
           />
         )}
         <main>
@@ -787,7 +823,7 @@ function App() {
               </button>
               <div className="page-title project-heading">
                 <div className={'project-emblem ' + project.color}>
-                  <FolderKanban size={28} />
+                  <ProjectIcon name={project.icon} size={28} />
                 </div>
                 <div>
                   <div className="project-heading-meta">
@@ -923,6 +959,8 @@ function App() {
                       project={project}
                       canWrite={user.permissions.includes('document:write')}
                       onError={setError}
+                      initialDocumentId={documentTarget}
+                      onTargetConsumed={() => setDocumentTarget(null)}
                     />
                   )}
                   {tab === 'team' && (
@@ -1113,7 +1151,7 @@ function App() {
                     }}
                   >
                     <span className={'project-emblem ' + p.color}>
-                      <Files size={23} />
+                      <ProjectIcon name={p.icon} size={23} />
                     </span>
                     <div>
                       <strong>{p.name}</strong>
@@ -1147,6 +1185,9 @@ function App() {
               }}
             />
           )}
+          {page === 'platform' && !project && user.platform_admin && (
+            <PlatformBackoffice user={user} onError={setError} />
+          )}
           <footer className="app-footer">
             <span>
               synko <small>by Synapt</small>
@@ -1164,72 +1205,34 @@ function App() {
         </div>
       )}
       {creating && (
-        <Modal title="Un nouveau projet" onClose={() => setCreating(false)}>
-          <p className="modal-intro">Posez les bases. Le reste se construit ensemble.</p>
-          <form onSubmit={createProject}>
-            <Field label="Nom du projet">
-              <input
-                name="name"
-                placeholder="Ex. Refonte de l’espace client"
-                required
-                maxLength={160}
-                autoFocus
-              />
-            </Field>
-            <Field label="Description">
-              <textarea
-                name="description"
-                placeholder="Quelle ambition porte ce projet ?"
-                rows={3}
-                maxLength={2000}
-              />
-            </Field>
-            <div className="form-row">
-              <Field label="Date de début">
-                <input name="start_date" type="date" defaultValue={today()} required />
-              </Field>
-              <Field label="Échéance prévisionnelle">
-                <input name="end_date" type="date" defaultValue={shiftDate(today(), 30)} required />
-              </Field>
-            </div>
-            <div className="form-row">
-              <Field label="Budget initial (€)">
-                <input
-                  name="budget"
-                  type="number"
-                  min={0}
-                  max={1000000000}
-                  step="0.01"
-                  defaultValue={0}
-                />
-              </Field>
-              <Field label="Couleur du projet">
-                <select name="color">
-                  <option value="sage">Sauge</option>
-                  <option value="blue">Bleu ardoise</option>
-                  <option value="clay">Terracotta</option>
-                  <option value="violet">Lavande</option>
-                </select>
-              </Field>
-            </div>
-            <div className="creation-note">
-              <Avatar name={user.name} small />
-              <span>
-                Vous serez responsable de ce projet.
-                <br />
-                <small>Entreprise : {user.org_name}</small>
-              </span>
-            </div>
-            <div className="modal-footer">
-              <button type="button" className="secondary" onClick={() => setCreating(false)}>
-                Annuler
-              </button>
-              <button type="submit" className="primary">
-                Créer le projet
-                <ArrowRight size={16} />
-              </button>
-            </div>
-          </form>
+        <CreateProject
+          user={user}
+          onClose={() => setCreating(false)}
+          onError={setError}
+          onCreated={async (id) => {
+            await refresh();
+            setProjectId(id);
+            setPage('projects');
+            setTab('gantt');
+          }}
+        />
+      )}
+      {notificationEvent && (
+        <Modal title={notificationEvent.title} onClose={() => setNotificationEvent(null)}>
+          <p className="muted">
+            {notificationEvent.project_name} · {displayDate(notificationEvent.start_date)} —{' '}
+            {displayDate(notificationEvent.end_date)}
+          </p>
+          <p>{notificationEvent.description}</p>
+          <button
+            className="secondary"
+            onClick={() => {
+              setNotificationEvent(null);
+              go('calendar');
+            }}
+          >
+            Ouvrir le calendrier
+          </button>
         </Modal>
       )}
       {editing && (
@@ -1296,7 +1299,7 @@ function ProjectCard({
     <article className="project-card">
       <div className="project-card-head">
         <span className={'project-emblem ' + p.color}>
-          <FolderKanban size={24} />
+          <ProjectIcon name={p.icon} size={24} />
         </span>
         <button
           className={'icon-button favorite ' + (favorite ? 'is-favorite' : '')}

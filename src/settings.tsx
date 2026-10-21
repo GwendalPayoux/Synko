@@ -1,16 +1,8 @@
 import { useState } from 'react';
-import {
-  LogOut,
-  UserRound,
-  ShieldCheck,
-  Building2,
-  CalendarClock,
-  Plug,
-  Server,
-} from 'lucide-react';
+import { LogOut, UserRound, ShieldCheck, Building2, CalendarClock, Plug } from 'lucide-react';
 import { api, type User, type Member, roleLabels } from './domain';
 import { Field } from './components';
-import { AccountSettings, OrganizationRoles, Sessions, PlatformAdmin } from './modules';
+import { AccountSettings, OrganizationRoles, Sessions } from './modules';
 import { Availability } from './portfolio';
 export function SettingsPage({
   user,
@@ -38,9 +30,6 @@ export function SettingsPage({
       ? [{ id: 'availability', label: 'Disponibilités', icon: CalendarClock }]
       : []),
     { id: 'services', label: 'Services connectés', icon: Plug },
-    ...(user.platform_admin
-      ? [{ id: 'platform', label: 'Administration plateforme', icon: Server }]
-      : []),
   ];
   return (
     <>
@@ -184,15 +173,6 @@ export function SettingsPage({
                 ))}
               </div>
               <p className="muted small-text">Aucune donnée n’est envoyée à ces services.</p>
-            </>
-          )}
-          {section === 'platform' && (
-            <>
-              <header>
-                <h2>Administration plateforme</h2>
-                <p>Registre de supervision des organisations.</p>
-              </header>
-              <PlatformAdmin onError={onError} />
             </>
           )}
           {message && (

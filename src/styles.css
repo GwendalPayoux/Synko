@@ -2751,3 +2751,287 @@ dialog.wide {
     font-size: 11px;
   }
 }
+
+/* Shared project identity and contextual actions */
+.project-icon-picker {
+  margin: 16px 0;
+  padding: 0;
+  border: 0;
+}
+.project-icon-picker legend {
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 10px;
+}
+.project-icon-picker > div {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 8px;
+}
+.project-icon-picker label {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  padding: 12px 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 10px;
+  color: var(--muted);
+}
+.project-icon-picker label:hover,
+.project-icon-picker label.selected {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.project-icon-picker label:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.project-icon-picker input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+}
+.template-description {
+  margin: -6px 0 18px;
+  border-left: 2px solid var(--accent);
+  padding: 8px 12px;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--muted);
+  background: var(--hover);
+}
+.action-tooltip {
+  position: fixed;
+  z-index: 1000;
+  transform: translateX(-50%);
+  max-width: min(240px, 90vw);
+  width: max-content;
+  padding: 8px 11px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--text);
+  color: var(--surface);
+  font-size: 11px;
+  line-height: 1.5;
+  pointer-events: none;
+  box-shadow: var(--shadow);
+}
+.action-tooltip.above {
+  transform: translate(-50%, -100%);
+}
+/* Task detail keeps navigation and save controls visible. */
+dialog.task-dialog {
+  width: min(860px, calc(100vw - 32px));
+  max-height: calc(100dvh - 40px);
+  padding: 0;
+  overflow: hidden;
+}
+.task-dialog > .modal-head {
+  padding: 24px 28px 0;
+}
+.task-context {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 28px 18px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.task-dialog-tabs,
+.platform-tabs {
+  display: flex;
+  gap: 5px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--line);
+}
+.task-dialog-tabs {
+  padding: 0 24px;
+}
+.task-dialog-tabs button,
+.platform-tabs button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+  padding: 13px 12px;
+  color: var(--muted);
+  background: none;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  font-size: 12px;
+}
+.task-dialog-tabs button.active,
+.platform-tabs button.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+  font-weight: 600;
+}
+.task-dialog-body {
+  padding: 24px 28px;
+  overflow-y: auto;
+  max-height: calc(100dvh - 330px);
+  min-height: 180px;
+}
+.task-dialog-body fieldset {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.task-dialog-body .task-extras {
+  margin: 0;
+  border: 0;
+  padding: 0;
+}
+.task-dialog-footer {
+  padding: 16px 28px;
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+}
+.task-footer-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.task-dialog-footer .confirm {
+  flex-wrap: wrap;
+}
+.task-dialog-footer .error {
+  margin-top: 0;
+}
+.platform-tabs {
+  margin-bottom: 22px;
+}
+.admin-access-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.admin-toolbar {
+  flex-wrap: wrap;
+}
+.admin-toolbar select {
+  width: auto;
+  max-width: 250px;
+}
+.platform-table {
+  padding: 0;
+  overflow: hidden;
+}
+.platform-table table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  text-align: left;
+}
+.platform-table th {
+  padding: 14px 18px;
+  background: var(--hover);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.platform-table td {
+  padding: 16px 18px;
+  border-top: 1px solid var(--line);
+  vertical-align: middle;
+}
+.platform-table small {
+  display: block;
+  color: var(--muted);
+  margin-top: 5px;
+  line-height: 1.6;
+}
+.platform-table tr:hover td {
+  background: var(--hover);
+}
+.admin-project-name {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 190px;
+}
+.admin-project-name .project-emblem {
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  border-radius: 8px;
+}
+.row-actions {
+  display: flex;
+  gap: 3px;
+}
+.admin-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--muted);
+  padding-top: 18px;
+}
+.admin-pagination > span:first-child {
+  margin-right: auto;
+}
+@media (max-width: 760px) {
+  .project-icon-picker > div {
+    grid-template-columns: repeat(4, 1fr);
+  }
+  dialog.task-dialog {
+    width: calc(100vw - 16px);
+    max-height: calc(100dvh - 16px);
+  }
+  .task-dialog > .modal-head {
+    padding: 18px 18px 0;
+  }
+  .task-context {
+    padding: 0 18px 14px;
+  }
+  .task-dialog-tabs {
+    padding: 0 10px;
+  }
+  .task-dialog-body {
+    padding: 18px;
+    max-height: calc(100dvh - 285px);
+  }
+  .task-dialog-footer {
+    padding: 14px 18px;
+  }
+  .admin-toolbar > *,
+  .admin-toolbar select {
+    max-width: 100%;
+  }
+  .admin-toolbar .search-input {
+    flex: 1 1 100%;
+  }
+  .platform-table .table-wrap {
+    overflow-x: auto;
+  }
+  .admin-pagination {
+    gap: 7px;
+    flex-wrap: wrap;
+  }
+}
+
+.sidebar {
+  overflow-y: auto;
+}
+.sidebar > * {
+  flex-shrink: 0;
+}
+@media (max-height: 820px) {
+  .sidebar .workspace-tip {
+    display: none;
+  }
+}

@@ -1,5 +1,29 @@
 export const baseTemplates = [
   {
+    key: 'event',
+    name: 'Organisation d’un événement',
+    description:
+      'Définir le format, préparer la logistique et la communication, accueillir les participants puis dresser le bilan.',
+    steps: [
+      ['Cadrage, public et budget', 0, 4],
+      ['Lieu et prestataires', 5, 11],
+      ['Programme et intervenants', 12, 18],
+      ['Communication et inscriptions', 19, 32],
+      ['Préparation logistique', 33, 39],
+      ['Jour de l’événement', 40, 40],
+      ['Bilan et remerciements', 41, 45],
+    ],
+    folders: [
+      'Cadrage et budget',
+      'Prestataires',
+      'Programme',
+      'Communication',
+      'Logistique',
+      'Bilan',
+    ],
+    icon: 'calendar',
+  },
+  {
     key: 'it',
     name: 'Projet informatique',
     description: 'Cadrage, conception, développement, recette et mise en service.',
@@ -51,6 +75,7 @@ export function seedTemplates(run, orgId, userId) {
       end,
     }));
     const structure = {
+      icon: preset.icon || 'folder',
       duration: preset.steps.at(-1)[2],
       tasks,
       dependencies: tasks.slice(1).map((t, i) => ({ task_id: t.id, predecessor_id: tasks[i].id })),

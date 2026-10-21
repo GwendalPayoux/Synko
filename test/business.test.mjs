@@ -321,6 +321,11 @@ test('Modules métier : relations, documents, budget, modèles, droits et notifi
       (n) => n.entity_id === doc,
     );
     assert.ok(notice);
+    assert.deepEqual(
+      (await req('/notifications/' + notice.id + '/target', 'GET', null, contributor.cookie)).value,
+      { type: 'document', project_id: p, entity_id: doc },
+    );
+    await req('/notifications/' + notice.id + '/target', 'GET', null, a, 404);
     await req('/notifications/' + notice.id, 'PATCH', { read: true }, contributor.cookie);
     assert.ok(
       (await req('/notifications', 'GET', null, contributor.cookie)).value.find(

@@ -23,6 +23,7 @@ export type Project = {
   progress: number;
   task_count: number;
   archived_at?: string | null;
+  icon?: string;
 };
 export type Task = {
   id: string;

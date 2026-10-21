@@ -1,3 +1,4 @@
+import { ProjectIconPicker } from './project-icons';
 import { useEffect, useState, type FormEvent } from 'react';
 import {
   api,
@@ -40,6 +41,7 @@ export function ProjectSettings({
   onError,
   onSaved,
 }: { members: Member[] } & Props) {
+  const [icon, setIcon] = useState(project.icon || 'folder');
   const [busy, setBusy] = useState(false),
     [confirm, setConfirm] = useState(false);
   const canWrite =
@@ -103,6 +105,7 @@ export function ProjectSettings({
               </select>
             </Field>
           </div>
+          <ProjectIconPicker value={icon} onChange={setIcon} />
           <button className="primary">Enregistrer les informations</button>
         </fieldset>
       </form>
@@ -356,9 +359,10 @@ export function NotificationCenter({
 }: {
   items: Notice[];
   onRefresh: () => Promise<void>;
-  onOpen: (id: string) => void;
+  onOpen: (notice: Notice) => Promise<void>;
   onError: (s: string) => void;
 }) {
+  const [opening, setOpening] = useState<string | null>(null);
   return (
     <section className="notification-popover panel">
       <h3>Notifications</h3>
@@ -366,8 +370,20 @@ export function NotificationCenter({
       <div className="notification-list">
         {items.map((n) => (
           <article className={!n.read_at ? 'unread' : ''} key={n.id}>
-            <button onClick={() => onOpen(n.project_id)}>
-              <strong>{n.title}</strong>
+            <button
+              disabled={!!opening}
+              onClick={async () => {
+                setOpening(n.id);
+                try {
+                  await onOpen(n);
+                } catch (e) {
+                  fail(e, onError);
+                } finally {
+                  setOpening(null);
+                }
+              }}
+            >
+              <strong>{opening === n.id ? 'Ouverture…' : n.title}</strong>
               <small>
                 {n.project_name} · {new Date(n.created_at).toLocaleString('fr-FR')}
               </small>
@@ -863,12 +879,14 @@ export function TaskExtras({
   user,
   onError,
   onRevision,
+  section = 'all',
 }: {
   task: Task;
   project: Project;
   user: User;
   onError: (s: string) => void;
   onRevision: (n: number) => void;
+  section?: 'all' | 'overview' | 'planning' | 'documents' | 'comments' | 'history';
 }) {
   type Detail = {
     task: Task;
@@ -917,107 +935,119 @@ export function TaskExtras({
   if (!data) return <p className="loading">Chargement des détails…</p>;
   return (
     <div className="task-extras">
-      <hr />
-      <h3>Sous-tâches, dépendances et charge</h3>
-      <form onSubmit={relations}>
-        <fieldset disabled={!write || busy}>
-          <Field label="Tâche parente">
-            <select name="parent_id" defaultValue={data.task.parent_id || ''}>
-              <option value="">Aucune (tâche principale)</option>
-              {data.tasks
-                .filter((t) => t.id !== task.id)
-                .map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.title}
-                  </option>
-                ))}
-            </select>
-          </Field>
-          <Field label="Charge estimée (heures)">
-            <input
-              name="effort_hours"
-              type="number"
-              min="0"
-              max="10000"
-              defaultValue={data.task.effort_hours ?? 8}
-              required
-            />
-          </Field>
-          <Field label="Prédécesseurs (sélection multiple)">
-            <select
-              multiple
-              name="predecessor_ids"
-              defaultValue={data.dependencies.map((d) => d.predecessor_id)}
-            >
-              {data.tasks
-                .filter((t) => t.id !== task.id)
-                .map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.title}
-                  </option>
-                ))}
-            </select>
-          </Field>
-          <p className="muted small-text">
-            Une dépendance fin-début signale les chevauchements. Aucun décalage automatique des
-            dates.
+      {(section === 'all' || section === 'planning') && (
+        <>
+          <h3>Sous-tâches, dépendances et charge</h3>
+          <form onSubmit={relations}>
+            <fieldset disabled={!write || busy}>
+              <Field label="Tâche parente">
+                <select name="parent_id" defaultValue={data.task.parent_id || ''}>
+                  <option value="">Aucune (tâche principale)</option>
+                  {data.tasks
+                    .filter((t) => t.id !== task.id)
+                    .map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.title}
+                      </option>
+                    ))}
+                </select>
+              </Field>
+              <Field label="Charge estimée (heures)">
+                <input
+                  name="effort_hours"
+                  type="number"
+                  min="0"
+                  max="10000"
+                  defaultValue={data.task.effort_hours ?? 8}
+                  required
+                />
+              </Field>
+              <Field label="Prédécesseurs (sélection multiple)">
+                <select
+                  multiple
+                  name="predecessor_ids"
+                  defaultValue={data.dependencies.map((d) => d.predecessor_id)}
+                >
+                  {data.tasks
+                    .filter((t) => t.id !== task.id)
+                    .map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.title}
+                      </option>
+                    ))}
+                </select>
+              </Field>
+              <p className="muted small-text">
+                Une dépendance fin-début signale les chevauchements. Aucun décalage automatique des
+                dates.
+              </p>
+              {write && <button className="secondary">Enregistrer les relations</button>}
+            </fieldset>
+          </form>
+          <p className="small-text">
+            Sous-tâches :{' '}
+            {data.tasks
+              .filter((t) => t.parent_id === task.id)
+              .map((t) => t.title)
+              .join(', ') || 'Aucune'}
           </p>
-          {write && <button className="secondary">Enregistrer les relations</button>}
-        </fieldset>
-      </form>
-      <p className="small-text">
-        Sous-tâches :{' '}
-        {data.tasks
-          .filter((t) => t.parent_id === task.id)
-          .map((t) => t.title)
-          .join(', ') || 'Aucune'}
-      </p>
-      <hr />
-      <h3>Documents liés</h3>
-      {data.attachments.map((d) => (
-        <p key={d.id}>{d.name}</p>
-      ))}
-      {user.permissions.includes('document:write') && (
-        <form
-          onSubmit={async (e) => {
-            const b = form(e);
-            try {
-              await api(base + '/attachments', 'POST', b);
-              await load();
-            } catch (e) {
-              fail(e, onError);
-            }
-          }}
-        >
-          <Field label="Document à joindre">
-            <select name="document_id" required>
-              <option value="">Sélectionner un document du projet</option>
-              {docs.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.name}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <button className="secondary">Joindre le document</button>
-        </form>
+        </>
       )}
-      <hr />
-      <h3>Commentaires</h3>
-      <Comments
-        items={data.comments}
-        onError={onError}
-        canWrite={user.role !== 'reader'}
-        path={base + '/comments'}
-        refresh={load}
-      />
-      <hr />
-      <h3>Historique de la tâche</h3>
-      {data.history.map((a) => (
-        <p className="small-text" key={a.id}>
-          {a.action} · {a.actor_name} · {new Date(a.created_at).toLocaleString('fr-FR')}
-        </p>
-      ))}
+      {(section === 'all' || section === 'documents') && (
+        <>
+          <h3>Documents liés</h3>
+          {data.attachments.map((d) => (
+            <p key={d.id}>{d.name}</p>
+          ))}
+          {user.permissions.includes('document:write') && (
+            <form
+              onSubmit={async (e) => {
+                const b = form(e);
+                try {
+                  await api(base + '/attachments', 'POST', b);
+                  await load();
+                } catch (e) {
+                  fail(e, onError);
+                }
+              }}
+            >
+              <Field label="Document à joindre">
+                <select name="document_id" required>
+                  <option value="">Sélectionner un document du projet</option>
+                  {docs.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.name}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <button className="secondary">Joindre le document</button>
+            </form>
+          )}
+        </>
+      )}
+      {(section === 'all' || section === 'comments') && (
+        <>
+          <h3>Commentaires</h3>
+          <Comments
+            items={data.comments}
+            onError={onError}
+            canWrite={user.role !== 'reader'}
+            path={base + '/comments'}
+            refresh={load}
+          />
+        </>
+      )}
+      {(section === 'all' || section === 'history') && (
+        <>
+          <h3>Historique de la tâche</h3>
+          {data.history.map((a) => (
+            <p className="small-text" key={a.id}>
+              {a.action} · {a.actor_name} · {new Date(a.created_at).toLocaleString('fr-FR')}
+            </p>
+          ))}
+        </>
+      )}
     </div>
   );
 }
@@ -1550,44 +1580,5 @@ export function AccountSettings({
         </>
       )}
     </div>
-  );
-}
-export function PlatformAdmin({ onError }: { onError: (s: string) => void }) {
-  const [orgs, setOrgs] = useState<
-    { id: string; name: string; member_count: number; project_count: number }[]
-  >([]);
-  useEffect(() => {
-    api<typeof orgs>('/platform/organizations')
-      .then(setOrgs)
-      .catch((e) => onError(e.message));
-  }, []);
-  return (
-    <section className="panel settings-panel">
-      <h3>Administration plateforme · Organisations</h3>
-      <p className="muted">
-        Registre global réservé au compte opérateur. Aucun accès implicite au contenu des projets
-        d’une autre entreprise.
-      </p>
-      <div className="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Entreprise</th>
-              <th>Membres</th>
-              <th>Projets</th>
-            </tr>
-          </thead>
-          <tbody>
-            {orgs.map((o) => (
-              <tr key={o.id}>
-                <td>{o.name}</td>
-                <td>{o.member_count}</td>
-                <td>{o.project_count}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </section>
   );
 }

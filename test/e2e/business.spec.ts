@@ -55,6 +55,7 @@ test('Planification avancée, budget, dossiers, validation, modèles et événem
   const tabs = page.locator('.project-tabs');
   await tabs.getByRole('button', { name: 'Liste', exact: true }).click();
   await page.getByRole('button', { name: /Livrer le résultat/ }).click();
+  await page.getByRole('button', { name: 'Planification', exact: true }).click();
   await page.getByLabel('Tâche parente', { exact: true }).selectOption(t.id);
   await page.getByLabel('Prédécesseurs (sélection multiple)').selectOption([t.id]);
   await page.getByLabel('Charge estimée (heures)').fill('16');
@@ -63,6 +64,7 @@ test('Planification avancée, budget, dossiers, validation, modèles et événem
   );
   await page.getByRole('button', { name: 'Enregistrer les relations' }).click();
   await saved;
+  await page.getByRole('button', { name: 'Discussion', exact: true }).click();
   await page.getByLabel('Ajouter un commentaire').fill('Le cadrage est validé par l’équipe.');
   await page.getByRole('button', { name: 'Publier', exact: true }).click();
   await expect(

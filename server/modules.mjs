@@ -1,3 +1,4 @@
+import { createProjectRecord, projectIcons } from './projects.mjs';
 import { randomUUID } from 'node:crypto';
 import { readFileSync, writeFileSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
@@ -11,7 +12,7 @@ export function businessModules(ctx) {
   const { db, one, all, run, project, projectWrite, audit, payload, json, files } = ctx;
   const notify = (s, userId, p, title, entity, key) =>
     run(
-      'INSERT OR IGNORE INTO notifications VALUES (?,?,?,?,?,?,?,NULL,?)',
+      'INSERT OR IGNORE INTO notifications(id,org_id,user_id,project_id,title,entity_id,dedupe_key,read_at,created_at,entity_type) VALUES (?,?,?,?,?,?,?,NULL,?,?)',
       randomUUID(),
       s.org_id,
       userId,
@@ -20,6 +21,23 @@ export function businessModules(ctx) {
       entity,
       key,
       now(),
+      one('SELECT id FROM tasks WHERE id=? AND org_id=? AND project_id=?', entity, s.org_id, p)
+        ? 'task'
+        : one(
+              'SELECT id FROM documents WHERE id=? AND org_id=? AND project_id=?',
+              entity,
+              s.org_id,
+              p,
+            )
+          ? 'document'
+          : one(
+                'SELECT id FROM events WHERE id=? AND org_id=? AND project_id=?',
+                entity,
+                s.org_id,
+                p,
+              )
+            ? 'event'
+            : 'project',
     );
   function document(s, p, id) {
     const d = one(
@@ -218,6 +236,11 @@ export function businessModules(ctx) {
         const b = await payload(req);
         if (!one('SELECT 1 FROM memberships WHERE user_id=? AND org_id=?', s.user_id, b.org_id))
           throw new HttpError(403, 'Organisation non autorisée.');
+        if (
+          !s.platform_admin &&
+          one('SELECT suspended_at FROM organizations WHERE id=?', b.org_id)?.suspended_at
+        )
+          throw new HttpError(403, 'Cette entreprise est suspendue.');
         run('UPDATE sessions SET org_id=? WHERE id=?', b.org_id, s.id);
         json(res, 200, { ok: true });
         return true;
@@ -319,6 +342,35 @@ export function businessModules(ctx) {
         );
         return true;
       }
+      const nt = path.match(/^\/api\/notifications\/([^/]+)\/target$/);
+      if (nt && method === 'GET') {
+        const n = one(
+          'SELECT * FROM notifications WHERE id=? AND org_id=? AND user_id=?',
+          nt[1],
+          s.org_id,
+          s.user_id,
+        );
+        if (!n) throw new HttpError(404, 'Notification introuvable.');
+        project(s, n.project_id);
+        if (n.entity_type === 'task') task(s, n.project_id, n.entity_id);
+        if (n.entity_type === 'document') document(s, n.project_id, n.entity_id);
+        if (
+          n.entity_type === 'event' &&
+          !one(
+            'SELECT id FROM events WHERE id=? AND org_id=? AND project_id=?',
+            n.entity_id,
+            s.org_id,
+            n.project_id,
+          )
+        )
+          throw new HttpError(404, 'Événement introuvable.');
+        json(res, 200, {
+          type: n.entity_type,
+          project_id: n.project_id,
+          entity_id: n.entity_type === 'project' ? n.project_id : n.entity_id,
+        });
+        return true;
+      }
       const nm = path.match(/^\/api\/notifications\/([^/]+)$/);
       if (nm && method === 'PATCH') {
         const b = await payload(req);
@@ -350,85 +402,28 @@ export function businessModules(ctx) {
           res,
           200,
           all(
-            'SELECT id,name,description,created_at FROM templates WHERE org_id=? ORDER BY created_at DESC',
+            'SELECT id,name,description,created_at,structure FROM templates WHERE org_id=? ORDER BY created_at DESC',
             s.org_id,
-          ),
+          ).map(({ structure, ...t }) => {
+            const p = JSON.parse(structure);
+            return {
+              ...t,
+              duration_days: Math.max(p.duration, ...p.tasks.map((t) => t.end)),
+              icon: p.icon || 'folder',
+            };
+          }),
         );
         return true;
       }
       const tm = path.match(/^\/api\/templates\/([^/]+)\/instantiate$/);
       if (tm && method === 'POST') {
         requirePermission(s, 'project:create');
-        const source = one('SELECT * FROM templates WHERE id=? AND org_id=?', tm[1], s.org_id);
-        if (!source) throw new HttpError(404, 'Modèle introuvable.');
-        const b = await payload(req),
-          start = date(b.start_date, 'Début'),
-          name = text(b.name, 'Nom', 160),
-          structure = JSON.parse(source.structure),
-          id = randomUUID();
-        const shifted = (n) =>
-          new Date(Date.parse(start) + n * 86400000).toISOString().slice(0, 10);
-        transaction(db, () => {
-          run(
-            'INSERT INTO projects(id,org_id,name,description,owner_id,start_date,end_date,budget_cents,color,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)',
-            id,
-            s.org_id,
-            name,
-            source.description,
-            s.user_id,
-            start,
-            shifted(structure.duration),
-            0,
-            'sage',
-            now(),
-          );
-          run('INSERT INTO project_members VALUES (?,?,?)', s.org_id, id, s.user_id);
-          const ids = new Map(structure.tasks.map((t) => [t.id, randomUUID()]));
-          for (const t of structure.tasks)
-            run(
-              'INSERT INTO tasks(id,org_id,project_id,title,description,start_date,end_date,priority,milestone,effort_hours,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
-              ids.get(t.id),
-              s.org_id,
-              id,
-              t.title,
-              t.description,
-              shifted(t.start),
-              shifted(t.end),
-              t.priority,
-              t.milestone,
-              t.effort_hours,
-              now(),
-            );
-          for (const t of structure.tasks)
-            if (t.parent_id)
-              run('UPDATE tasks SET parent_id=? WHERE id=?', ids.get(t.parent_id), ids.get(t.id));
-          for (const d of structure.dependencies)
-            run(
-              'INSERT INTO task_dependencies VALUES (?,?,?,?)',
-              s.org_id,
-              id,
-              ids.get(d.task_id),
-              ids.get(d.predecessor_id),
-            );
-          const folderIds = new Map(structure.folders.map((f) => [f.id, randomUUID()]));
-          for (const f of structure.folders)
-            run(
-              'INSERT INTO folders(id,org_id,project_id,name) VALUES (?,?,?,?)',
-              folderIds.get(f.id),
-              s.org_id,
-              id,
-              f.name,
-            );
-          for (const f of structure.folders)
-            if (f.parent_id)
-              run(
-                'UPDATE folders SET parent_id=? WHERE id=?',
-                folderIds.get(f.parent_id),
-                folderIds.get(f.id),
-              );
-          audit(s, id, 'Projet créé depuis un modèle', id);
-        });
-        json(res, 201, { id });
+        const b = await payload(req);
+        json(
+          res,
+          201,
+          createProjectRecord({ db, one, run, audit }, s, { ...b, template_id: tm[1] }),
+        );
         return true;
       }
       const pm = path.match(/^\/api\/projects\/([^/]+)(?:\/(.*))?$/);
@@ -452,7 +447,7 @@ export function businessModules(ctx) {
         if (end < start) throw new HttpError(422, 'Dates incohérentes.');
         transaction(db, () => {
           run(
-            'UPDATE projects SET name=?,description=?,owner_id=?,start_date=?,end_date=?,status=?,color=?,archived_at=? WHERE id=? AND org_id=?',
+            'UPDATE projects SET name=?,description=?,owner_id=?,start_date=?,end_date=?,status=?,color=?,icon=?,archived_at=? WHERE id=? AND org_id=?',
             text(b.name ?? p.name, 'Nom', 160),
             typeof b.description === 'string' ? b.description.slice(0, 2000) : p.description,
             owner,
@@ -460,6 +455,7 @@ export function businessModules(ctx) {
             end,
             choice(b.status ?? p.status, ['active', 'paused', 'completed'], 'Statut'),
             choice(b.color ?? p.color, ['sage', 'clay', 'blue', 'violet'], 'Couleur'),
+            choice(b.icon ?? p.icon, projectIcons, 'Icône'),
             b.archived === undefined ? p.archived_at : b.archived ? now() : null,
             pid,
             s.org_id,
@@ -727,6 +723,17 @@ export function businessModules(ctx) {
         return true;
       }
       const ev = tail.match(/^events\/([^/]+)$/);
+      if (ev && method === 'GET') {
+        const event = one(
+          'SELECT * FROM events WHERE id=? AND org_id=? AND project_id=?',
+          ev[1],
+          s.org_id,
+          pid,
+        );
+        if (!event) throw new HttpError(404, 'Événement introuvable.');
+        json(res, 200, { ...event, project_name: p.name });
+        return true;
+      }
       if (ev && method === 'DELETE') {
         projectWrite(s, p);
         transaction(db, () => {
@@ -743,6 +750,7 @@ export function businessModules(ctx) {
           id = randomUUID(),
           delta = (d) => Math.round((Date.parse(d) - Date.parse(p.start_date)) / 86400000);
         const structure = {
+          icon: p.icon,
           duration: delta(p.end_date),
           tasks: tasks.map((t) => ({ ...t, start: delta(t.start_date), end: delta(t.end_date) })),
           dependencies: all(

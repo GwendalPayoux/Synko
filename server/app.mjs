@@ -1,3 +1,5 @@
+import { platformModule } from './platform.mjs';
+import { createProjectRecord } from './projects.mjs';
 import { createServer } from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { mkdirSync, writeFileSync, readFileSync, existsSync, unlinkSync } from 'node:fs';
@@ -78,11 +80,13 @@ export function createApp({
     const s =
       cookie &&
       one(
-        'SELECT s.*,u.name,u.email,u.email_verified_at,u.platform_admin,m.role,o.name org_name FROM sessions s JOIN users u ON u.id=s.user_id JOIN memberships m ON m.user_id=s.user_id AND m.org_id=s.org_id JOIN organizations o ON o.id=s.org_id WHERE s.id=? AND s.expires_at>?',
+        'SELECT s.*,u.name,u.email,u.email_verified_at,u.platform_admin,m.role,o.suspended_at,o.name org_name FROM sessions s JOIN users u ON u.id=s.user_id JOIN memberships m ON m.user_id=s.user_id AND m.org_id=s.org_id JOIN organizations o ON o.id=s.org_id WHERE s.id=? AND s.expires_at>? AND u.disabled_at IS NULL',
         hash(cookie),
         Date.now(),
       );
     if (!s) throw new HttpError(401, 'Veuillez vous connecter.');
+    if (s.suspended_at && !s.platform_admin)
+      throw new HttpError(403, 'Cette entreprise est suspendue.');
     return s;
   }
   function user(s) {
@@ -192,6 +196,16 @@ export function createApp({
     origin,
     mailMode,
   });
+  const platformRoutes = platformModule({
+    db,
+    one,
+    all,
+    run,
+    payload,
+    json,
+    audit,
+    security: accounts.security,
+  });
   function taskInput(b, s, p) {
     const start = date(b.start_date, 'Date de début'),
       end = date(b.end_date, 'Date de fin');
@@ -279,10 +293,14 @@ export function createApp({
             const dummy = '00000000000000000000000000000000:' + '00'.repeat(64);
             const valid = await passwordMatches(pass, u?.password_hash || dummy);
             if (!u || !valid) throw new HttpError(401, 'Adresse e-mail ou mot de passe incorrect.');
+            if (u.disabled_at) throw new HttpError(403, 'Ce compte est désactivé.');
             const membership = one(
-              'SELECT org_id FROM memberships WHERE user_id=? ORDER BY org_id LIMIT 1',
+              'SELECT m.org_id FROM memberships m JOIN organizations o ON o.id=m.org_id WHERE m.user_id=? AND (o.suspended_at IS NULL OR ?=1) ORDER BY m.org_id LIMIT 1',
               u.id,
+              u.platform_admin,
             );
+            if (!membership)
+              throw new HttpError(403, 'Aucun espace entreprise actif n’est disponible.');
             setSession(res, u.id, membership.org_id);
             return json(res, 200, { ok: true });
           }
@@ -324,7 +342,7 @@ export function createApp({
           const org = text(b.organization, 'Entreprise', 120);
           const orgId = randomUUID();
           transaction(db, () => {
-            run('INSERT INTO organizations VALUES (?,?,?)', orgId, org, now());
+            run('INSERT INTO organizations(id,name,created_at) VALUES (?,?,?)', orgId, org, now());
             run(
               'INSERT INTO users(id,email,name,password_hash,created_at) VALUES (?,?,?,?,?)',
               id,
@@ -345,6 +363,7 @@ export function createApp({
           return json(res, 201, { ok: true });
         }
         const s = session(req);
+        if (await platformRoutes(req, res, url, s)) return;
         if (await accounts.route(req, res, url, s)) return;
         if (await modules.route(req, res, url, s)) return;
         if (path === '/api/me' && method === 'GET') return json(res, 200, user(s));
@@ -400,32 +419,8 @@ export function createApp({
           );
         if (path === '/api/projects' && method === 'POST') {
           requirePermission(s, 'project:create');
-          const b = await payload(req);
-          const id = randomUUID(),
-            start = date(b.start_date, 'Début'),
-            end = date(b.end_date, 'Fin');
-          if (end < start) throw new HttpError(422, 'Dates incohérentes.');
-          const name = text(b.name, 'Nom du projet', 160),
-            description = typeof b.description === 'string' ? b.description.slice(0, 2000) : '';
-          const budget = integer(b.budget_cents ?? 0, 0, 100000000000, 'Budget');
-          transaction(db, () => {
-            run(
-              'INSERT INTO projects(id,org_id,name,description,owner_id,start_date,end_date,budget_cents,color,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)',
-              id,
-              s.org_id,
-              name,
-              description,
-              s.user_id,
-              start,
-              end,
-              budget,
-              choice(b.color || 'sage', ['sage', 'clay', 'blue', 'violet'], 'Couleur'),
-              now(),
-            );
-            run('INSERT INTO project_members VALUES (?,?,?)', s.org_id, id, s.user_id);
-            audit(s, id, 'Projet créé', id);
-          });
-          return json(res, 201, { id });
+          const result = createProjectRecord({ db, one, run, audit }, s, await payload(req));
+          return json(res, 201, result);
         }
         if (path === '/api/tasks' && method === 'GET')
           return json(

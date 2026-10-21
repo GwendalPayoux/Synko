@@ -15,11 +15,15 @@ export function Documents({
   canWrite,
   onError,
   user,
+  initialDocumentId,
+  onTargetConsumed,
 }: {
   project: Project;
   canWrite: boolean;
   onError: (s: string) => void;
   user: User;
+  initialDocumentId?: string | null;
+  onTargetConsumed?: () => void;
 }) {
   const [docs, setDocs] = useState<Document[]>([]),
     [selected, setSelected] = useState<Document | null>(null),
@@ -46,6 +50,15 @@ export function Documents({
       .catch((e) => onError(e.message))
       .finally(() => setLoading(false));
   }, [project.id]);
+  useEffect(() => {
+    if (!initialDocumentId || loading) return;
+    const doc = docs.find((d) => d.id === initialDocumentId);
+    if (doc) {
+      setDocumentTab('info');
+      setSelected(doc);
+    } else onError('Ce document n’est plus accessible.');
+    onTargetConsumed?.();
+  }, [initialDocumentId, loading, docs]);
   async function upload(file?: File) {
     if (!file) return;
     if (file.size > 20 * 1024 * 1024) {
@@ -81,6 +94,7 @@ export function Documents({
       <>
         <input ref={input} type="file" hidden onChange={(e) => upload(e.target.files?.[0])} />
         <DocumentViewer
+          key={selected.id}
           document={docs.find((d) => d.id === selected.id) || selected}
           project={project}
           user={user}

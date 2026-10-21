@@ -69,3 +69,28 @@ Toutes les routes projet héritent du contrôle d’entreprise et d’appartenan
 | GET /projects/:id/workload                                                                     | Charge du projet, sur 7 jours, capacités ajustées des absences                                      |
 
 Les chemins documentaires abrégés dans le tableau sont relatifs à /projects/:id. Les tests d’intégration fournissent des requêtes exécutables avec champs, réponses et contrôles négatifs.
+
+## Administration Synko et navigation contextuelle (migration 006)
+
+Toutes les routes /platform exigent un compte plateforme actif ; l’administrateur entreprise reçoit 403.
+
+| Route                                   | Contrat                                                                                                      |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| GET /platform/organizations             | Toutes les entreprises, état et compteurs                                                                    |
+| POST /platform/organizations            | name, admin_user_id optionnel ; opérateur administrateur initial par défaut                                  |
+| PATCH /platform/organizations/:id       | name, suspended ; conservation des données                                                                   |
+| POST /platform/organizations/:id/access | Appartenance administrateur explicite et journalisée ; bascule de session                                    |
+| GET /platform/organizations/:id/members | Membres, rôles et état des comptes                                                                           |
+| GET /platform/projects                  | org_id, q, sort (organization/name/end_date/created_at/status), page ; {items,total,page}, 50 lignes         |
+| POST /platform/projects                 | org_id, owner_id, nom, dates, budget, statut, couleur et icône                                               |
+| PATCH /platform/projects/:id            | Édition des métadonnées, responsable et archived ; journalisation                                            |
+| GET /platform/users                     | org_id, q, sort (name/email/created_at), page ; appartenances et état, sans hash ni secret                   |
+| POST /platform/users                    | name, email, password, org_id, role ; aucun envoi d’e-mail implicite                                         |
+| PATCH /platform/users/:id               | name, email, disabled, platform_admin, org_id et role optionnels ; conserve les autres appartenances         |
+| POST /platform/users/:id/password       | password ; révoque sessions et jetons                                                                        |
+| DELETE /platform/users/:id/sessions     | Ferme toutes les sessions du compte                                                                          |
+| GET /platform/audit                     | 200 dernières actions plateforme                                                                             |
+| GET /notifications/:id/target           | {type,project_id,entity_id} ; destinataire et accès à l’élément revérifiés ; 404 si supprimé ou inaccessible |
+| GET /projects/:id/events/:eventId       | Détail d’un événement autorisé                                                                               |
+
+POST /projects accepte template_id facultatif et icon (liste fermée). Sans template_id, le projet est vierge. Le modèle, les tâches, dépendances et dossiers sont copiés dans une transaction. GET /templates inclut duration_days et icon. Le modèle « Organisation d’un événement » contient cadrage, lieu et prestataires, programme, communication, logistique, jour J et bilan. Les dates sont relatives au début du nouveau projet. Les modèles personnalisés conservent aussi l’icône du projet source.

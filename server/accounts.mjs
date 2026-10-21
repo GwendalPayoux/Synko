@@ -170,22 +170,6 @@ export function accountsModule({ db, one, all, run, payload, json, directory, or
         });
         return true;
       }
-      if (path.startsWith('/api/platform/')) {
-        const user = one('SELECT platform_admin FROM users WHERE id=?', s.user_id);
-        if (!user.platform_admin)
-          throw new HttpError(403, 'Accès réservé à l’administrateur plateforme.');
-        if (path === '/api/platform/organizations' && method === 'GET') {
-          security(s, 'Consultation du registre plateforme');
-          json(
-            res,
-            200,
-            all(
-              'SELECT o.id,o.name,o.created_at,(SELECT COUNT(*) FROM memberships m WHERE m.org_id=o.id) member_count,(SELECT COUNT(*) FROM projects p WHERE p.org_id=o.id) project_count FROM organizations o ORDER BY o.created_at DESC',
-            ),
-          );
-          return true;
-        }
-      }
       return false;
     },
   };
