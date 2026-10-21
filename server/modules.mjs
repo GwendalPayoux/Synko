@@ -469,6 +469,14 @@ export function businessModules(ctx) {
       const rm = tail.match(/^members\/([^/]+)$/);
       if (rm && method === 'DELETE') {
         projectWrite(s, p);
+        if (
+          one('SELECT role FROM memberships WHERE org_id=? AND user_id=?', s.org_id, rm[1])
+            ?.role === 'org_admin'
+        )
+          throw new HttpError(
+            403,
+            'Les administrateurs entreprise sont rattachés à tous les projets de leur entreprise et ne peuvent pas être retirés.',
+          );
         if (rm[1] === p.owner_id)
           throw new HttpError(422, 'Transférez la responsabilité avant le retrait.');
         transaction(db, () => {

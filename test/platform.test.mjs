@@ -104,6 +104,44 @@ test('Administration Synko : isolation, sociétés, comptes, droits, suspension 
     assert.equal((await req('/me', 'GET', null, a)).value.org_id, org);
     await req('/projects/' + project + '/tasks', 'GET', null, a);
     let c = (await req('/auth/login', 'POST', { email: 'camille@test.fr', password })).cookie;
+    const managed = (
+      await req(
+        '/projects',
+        'POST',
+        { name: 'Projet du chef', start_date: '2026-10-01', end_date: '2026-12-01' },
+        c,
+        201,
+      )
+    ).value.id;
+    assert.ok(
+      (await req('/projects/' + managed + '/members', 'GET', null, c)).value.some(
+        (m) => m.id === me.id && m.role === 'org_admin',
+      ),
+    );
+    await req('/projects/' + managed + '/members/' + me.id, 'DELETE', null, c, 403);
+    const promoted = (
+      await req(
+        '/platform/users',
+        'POST',
+        {
+          name: 'Second admin',
+          email: 'second-admin@test.fr',
+          password,
+          org_id: org,
+          role: 'contributor',
+        },
+        a,
+        201,
+      )
+    ).value.id;
+    await req('/platform/users/' + promoted, 'PATCH', { org_id: org, role: 'org_admin' }, a);
+    for (const pid of [managed, project])
+      assert.ok(
+        (await req('/projects/' + pid + '/members', 'GET', null, a)).value.some(
+          (m) => m.id === promoted,
+        ),
+      );
+    await req('/projects/' + managed + '/members/' + promoted, 'DELETE', null, a, 403);
     await req('/platform/organizations/' + org, 'PATCH', { suspended: true }, a);
     await req('/me', 'GET', null, c, 401);
     await req('/auth/login', 'POST', { email: 'camille@test.fr', password }, '', 403);

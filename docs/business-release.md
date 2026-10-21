@@ -29,3 +29,11 @@ Toutes les relations métier sont contrôlées côté serveur par entreprise et 
 ## Limites et suite
 
 La couverture actuelle figure dans le README. L’industrialisation reste distincte : PostgreSQL, stockage objet, antivirus, véritable livraison d’e-mail, tâches d’arrière-plan, OAuth Google/Microsoft, connecteur IA consenti, audit complet, rétention configurable, suppression/anonymisation RGPD, quotas, tests de charge, revue d’accessibilité et reprise après sinistre. L’opérateur plateforme dispose désormais d’un back-office de gestion des entreprises, comptes, droits et projets, avec suspension, réactivation et journal. La facturation reste non développée. Les approbations ne valent pas signature électronique. La lecture documentaire propose désormais une page à deux panneaux avec versions, validations et commentaires en onglets ; les paramètres sont organisés par sections et la déconnexion reste accessible dans leur en-tête.
+
+## Ajustements de navigation et d’accès aux projets
+
+L’en-tête affiche uniquement le nom de la page ou du projet. La liste des projets affiche initialement les projets en cours ; les modèles sont proposés dans le formulaire de création et restent administrables depuis les paramètres du projet. Les cartes sont entièrement cliquables, avec une action Favori indépendante et un bouton d’ouverture accessible au clavier. Les lignes des documents ouvrent les détails ; leurs actions de téléchargement, historique et import conservent leur comportement propre.
+
+Le calendrier de Mon espace permet de créer un événement réel pour un projet dont l’utilisateur a les droits de gestion. La couleur du projet est propagée à sa carte, aux accents de son espace, à la progression et aux tâches à faire/en cours du Gantt, avec déclinaison sombre ; les états de validation et de fin conservent leurs repères sémantiques.
+
+La migration 007 rattache les administrateurs entreprise à tous les projets existants. Des déclencheurs SQL appliquent la même règle à la création d’un projet, à l’ajout d’un administrateur ou à la promotion d’un membre. Le retrait d’un administrateur entreprise est refusé côté serveur, quel que soit le rôle de l’auteur. Une rétrogradation conserve l’appartenance explicite au projet ; elle peut ensuite être retirée par un responsable autorisé. Les administrateurs d’autres entreprises ne sont jamais ajoutés.

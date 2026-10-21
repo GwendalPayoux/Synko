@@ -225,7 +225,16 @@ export function Documents({
                     !!d.archived_at === archived,
                 )
                 .map((d) => (
-                  <tr key={d.id}>
+                  <tr
+                    key={d.id}
+                    className="document-row"
+                    onClick={(e) => {
+                      if (!(e.target as Element).closest('button,a,input,select')) {
+                        setDocumentTab('info');
+                        setSelected(d);
+                      }
+                    }}
+                  >
                     <td>
                       <button
                         className="file-name document-open"

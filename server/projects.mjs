@@ -79,7 +79,7 @@ export function createProjectRecord({ db, one, run, audit, beforeCreate }, s, b)
       status,
       stamp,
     );
-    run('INSERT INTO project_members VALUES (?,?,?)', s.org_id, id, owner);
+    run('INSERT OR IGNORE INTO project_members VALUES (?,?,?)', s.org_id, id, owner);
     if (structure) {
       const ids = new Map(structure.tasks.map((t) => [t.id, randomUUID()]));
       for (const t of structure.tasks)

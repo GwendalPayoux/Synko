@@ -71,6 +71,6 @@ Pour tester la récupération : définir `MAIL_MODE=local` dans `.env`, redémar
 
 Pour habiliter un compte opérateur existant : `node scripts/platform-admin.mjs compte@entreprise.fr`. Cette action locale explicite est journalisée ; aucun endpoint public ne peut accorder ce droit. Le menu « Administration Synko » apparaît alors dans la barre latérale. Un opérateur habilité peut ensuite gérer les autres opérateurs dans le back-office. L’ouverture d’un espace entreprise demande une confirmation explicite, ajoute une appartenance administrateur visible et journalise l’accès.
 
-Les migrations 002 à 006 étendent la base existante sans remplacer les comptes, projets ou fichiers. Sauvegarder avant le premier redémarrage d’une version migrante. Voir [le lot métier livré](docs/business-release.md).
+Les migrations 002 à 007 étendent la base existante sans remplacer les comptes, projets ou fichiers. Sauvegarder avant le premier redémarrage d’une version migrante. Voir [le lot métier livré](docs/business-release.md).
 
 Sauvegarde à chaud : `pnpm backup:local`. Restauration vérifiée vers un dossier neuf : `node scripts/restore.mjs chemin-sauvegarde nouvelle-destination`. Aucun écrasement de dossier existant n’est autorisé. La copie distante, le chiffrement et la planification automatique restent des opérations d’exploitation à configurer.

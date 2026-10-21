@@ -3035,3 +3035,87 @@ dialog.task-dialog {
     display: none;
   }
 }
+
+/* Project colour follows the user into the project workspace. */
+[data-project-color='sage'] {
+  --accent: #49633c;
+  --accent-soft: #e9eedf;
+  --project-edge: #91a578;
+}
+[data-project-color='clay'] {
+  --accent: #8e563e;
+  --accent-soft: #f4e6dd;
+  --project-edge: #b98565;
+}
+[data-project-color='blue'] {
+  --accent: #3e607d;
+  --accent-soft: #e6edf1;
+  --project-edge: #7897b0;
+}
+[data-project-color='violet'] {
+  --accent: #71518d;
+  --accent-soft: #ede8f3;
+  --project-edge: #a28ab9;
+}
+[data-theme='dark'] [data-project-color='sage'] {
+  --accent: #b3c89d;
+  --accent-soft: #34412e;
+}
+[data-theme='dark'] [data-project-color='clay'] {
+  --accent: #e3b49a;
+  --accent-soft: #49362c;
+}
+[data-theme='dark'] [data-project-color='blue'] {
+  --accent: #a7c7e1;
+  --accent-soft: #2c3e4b;
+}
+[data-theme='dark'] [data-project-color='violet'] {
+  --accent: #ceb4e4;
+  --accent-soft: #3d304b;
+}
+.project-card {
+  cursor: pointer;
+  position: relative;
+  border-top: 3px solid var(--project-edge, var(--line));
+}
+.project-card .favorite {
+  position: relative;
+  z-index: 1;
+}
+.project-card:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+.project-card:hover {
+  border-color: var(--project-edge, var(--accent));
+}
+.document-row {
+  cursor: pointer;
+}
+.document-row:hover td {
+  background: var(--hover);
+}
+.dashboard-calendar {
+  min-width: 0;
+}
+.events-modal-host {
+  display: contents;
+}
+.calendar-controls {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.project-card .progress > span,
+.app-main[data-project-color] .progress > span {
+  background: var(--accent);
+}
+.app-main[data-project-color] .gantt-bar.todo,
+.app-main[data-project-color] .gantt-bar.doing {
+  background: var(--accent-soft);
+  border-color: var(--project-edge);
+  color: var(--accent);
+}
+.app-main[data-project-color] .gantt-fill {
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+}

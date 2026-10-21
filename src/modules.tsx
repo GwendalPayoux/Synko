@@ -462,13 +462,18 @@ export function TeamManagement({
                   {m.weekly_hours} h / {m.available_hours} h {m.overloaded ? '· Surcharge' : ''}
                 </td>
                 <td>
-                  {write && m.id !== project.owner_id && (
-                    <button
-                      className="link danger"
-                      onClick={() => setRemove(members.find((x) => x.id === m.id) || null)}
-                    >
-                      Retirer du projet
-                    </button>
+                  {members.find((x) => x.id === m.id)?.role === 'org_admin' ? (
+                    <span className="muted">Accès permanent</span>
+                  ) : (
+                    write &&
+                    m.id !== project.owner_id && (
+                      <button
+                        className="link danger"
+                        onClick={() => setRemove(members.find((x) => x.id === m.id) || null)}
+                      >
+                        Retirer du projet
+                      </button>
+                    )
                   )}
                 </td>
               </tr>
@@ -521,6 +526,7 @@ export function EventsPanel({
   onSaved,
   openRequest = 0,
   headerAction,
+  modalOnly = false,
 }: {
   projects: Project[];
   user: User;
@@ -528,6 +534,7 @@ export function EventsPanel({
   onSaved: () => Promise<void>;
   openRequest?: number;
   headerAction?: boolean;
+  modalOnly?: boolean;
 }) {
   const [events, setEvents] = useState<EventItem[]>([]),
     [modal, setModal] = useState(false),
@@ -562,66 +569,71 @@ export function EventsPanel({
     }
   }
   return (
-    <section className="panel events-panel">
-      <div className="panel-head">
-        <div>
-          <h3>Événements transversaux</h3>
-          <span className="muted">
-            Réunions, livraisons et dates importantes des projets accessibles
-          </span>
-        </div>
-        {!headerAction && writable.length > 0 && (
-          <button className="primary" onClick={() => setModal(true)}>
-            Nouvel événement
-          </button>
-        )}
-      </div>
-      <div className="toolbar module-toolbar">
-        <select
-          aria-label="Filtrer les événements par projet"
-          value={filter}
-          onChange={(e) => setFilter(e.target.value)}
-        >
-          <option value="all">Tous les projets</option>
-          {projects.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
-        </select>
-        <select
-          aria-label="Filtrer les événements par type"
-          value={kind}
-          onChange={(e) => setKind(e.target.value)}
-        >
-          <option value="all">Tous les types</option>
-          <option value="meeting">Réunions</option>
-          <option value="delivery">Livraisons</option>
-          <option value="deadline">Échéances</option>
-          <option value="event">Autres événements</option>
-        </select>
-      </div>
-      <div className="agenda">
-        {events
-          .filter(
-            (e) =>
-              (filter === 'all' || e.project_id === filter) && (kind === 'all' || e.kind === kind),
-          )
-          .map((e) => (
-            <article key={e.id}>
-              <strong>{e.title}</strong>
-              <p>
-                {e.project_name} · {displayDate(e.start_date)} — {displayDate(e.end_date)}
-              </p>
-              <p className="muted">{e.description}</p>
-              {writable.some((p) => p.id === e.project_id) && (
-                <button className="link danger" onClick={() => setDeleting(e)}>
-                  Supprimer
-                </button>
-              )}
-            </article>
-          ))}
-      </div>
+    <section className={modalOnly ? 'events-modal-host' : 'panel events-panel'}>
+      {!modalOnly && (
+        <>
+          <div className="panel-head">
+            <div>
+              <h3>Événements transversaux</h3>
+              <span className="muted">
+                Réunions, livraisons et dates importantes des projets accessibles
+              </span>
+            </div>
+            {!headerAction && writable.length > 0 && (
+              <button className="primary" onClick={() => setModal(true)}>
+                Nouvel événement
+              </button>
+            )}
+          </div>
+          <div className="toolbar module-toolbar">
+            <select
+              aria-label="Filtrer les événements par projet"
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+            >
+              <option value="all">Tous les projets</option>
+              {projects.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+            <select
+              aria-label="Filtrer les événements par type"
+              value={kind}
+              onChange={(e) => setKind(e.target.value)}
+            >
+              <option value="all">Tous les types</option>
+              <option value="meeting">Réunions</option>
+              <option value="delivery">Livraisons</option>
+              <option value="deadline">Échéances</option>
+              <option value="event">Autres événements</option>
+            </select>
+          </div>
+          <div className="agenda">
+            {events
+              .filter(
+                (e) =>
+                  (filter === 'all' || e.project_id === filter) &&
+                  (kind === 'all' || e.kind === kind),
+              )
+              .map((e) => (
+                <article key={e.id}>
+                  <strong>{e.title}</strong>
+                  <p>
+                    {e.project_name} · {displayDate(e.start_date)} — {displayDate(e.end_date)}
+                  </p>
+                  <p className="muted">{e.description}</p>
+                  {writable.some((p) => p.id === e.project_id) && (
+                    <button className="link danger" onClick={() => setDeleting(e)}>
+                      Supprimer
+                    </button>
+                  )}
+                </article>
+              ))}
+          </div>
+        </>
+      )}
       {modal && (
         <Modal title="Nouvel événement" onClose={() => setModal(false)}>
           <form onSubmit={save}>

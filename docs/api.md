@@ -94,3 +94,5 @@ Toutes les routes /platform exigent un compte plateforme actif ; l’administrat
 | GET /projects/:id/events/:eventId       | Détail d’un événement autorisé                                                                               |
 
 POST /projects accepte template_id facultatif et icon (liste fermée). Sans template_id, le projet est vierge. Le modèle, les tâches, dépendances et dossiers sont copiés dans une transaction. GET /templates inclut duration_days et icon. Le modèle « Organisation d’un événement » contient cadrage, lieu et prestataires, programme, communication, logistique, jour J et bilan. Les dates sont relatives au début du nouveau projet. Les modèles personnalisés conservent aussi l’icône du projet source.
+
+La migration 007 garantit l’appartenance des administrateurs entreprise à tous les projets de leur entreprise (existants, nouveaux et promotions). DELETE /projects/:id/members/:userId retourne 403 lorsque la cible est un administrateur entreprise. La liste des membres et les calculs de charge incluent ces administrateurs.

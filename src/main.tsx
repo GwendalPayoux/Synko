@@ -89,7 +89,7 @@ function App() {
     [creating, setCreating] = useState(false),
     [editing, setEditing] = useState<{ project: Project; task?: Task } | null>(null),
     [query, setQuery] = useState(''),
-    [filter, setFilter] = useState('all'),
+    [filter, setFilter] = useState('active'),
     [layout, setLayout] = useState('grid'),
     [sort, setSort] = useState('recent'),
     [mobile, setMobile] = useState(false),
@@ -172,9 +172,10 @@ function App() {
     if (!user) return;
     try {
       const p = JSON.parse(localStorage.getItem('synko:preferences:' + user.id) || '{}');
+      setFilter('active');
       if (p.layout) setLayout(p.layout);
       if (p.sort) setSort(p.sort);
-      if (p.filter) setFilter(p.filter);
+
       if (p.taskFilter) setTaskFilter(p.taskFilter);
     } catch {}
   }, [user?.id]);
@@ -183,10 +184,10 @@ function App() {
     try {
       localStorage.setItem(
         'synko:preferences:' + user.id,
-        JSON.stringify({ layout, sort, filter, taskFilter }),
+        JSON.stringify({ layout, sort, taskFilter }),
       );
     } catch {}
-  }, [user?.id, layout, sort, filter, taskFilter]);
+  }, [user?.id, layout, sort, taskFilter]);
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     localStorage.setItem('synko:theme', theme);
@@ -473,7 +474,7 @@ function App() {
         </div>
       </aside>
       {mobile && <div className="mobile-overlay" onClick={() => setMobile(false)} />}
-      <div className="app-main">
+      <div className="app-main" data-project-color={project?.color}>
         <header className="topbar">
           <div className="breadcrumbs">
             <button
@@ -483,8 +484,6 @@ function App() {
             >
               <Menu size={20} />
             </button>
-            <span>{user.org_name}</span>
-            <ChevronRight size={14} />
             <strong>
               {project
                 ? project.name
@@ -552,7 +551,31 @@ function App() {
                 </span>
               </div>
               <div className="dashboard-layout">
-                <Calendar tasks={personal} onTask={openTask} />
+                <div className="dashboard-calendar">
+                  <Calendar
+                    tasks={personal}
+                    onTask={openTask}
+                    onCreateEvent={
+                      projects.some(
+                        (p) =>
+                          !p.archived_at &&
+                          (user.role === 'org_admin' ||
+                            (user.role === 'project_manager' && p.owner_id === user.id)),
+                      )
+                        ? () => setEventRequest((n) => n + 1)
+                        : undefined
+                    }
+                  />
+                  <EventsPanel
+                    projects={projects.filter((p) => !p.archived_at)}
+                    user={user}
+                    onError={setError}
+                    onSaved={saved}
+                    headerAction
+                    modalOnly
+                    openRequest={eventRequest}
+                  />
+                </div>
                 <aside className="dashboard-aside">
                   <section className="focus-card">
                     <span className="eyebrow">VOTRE CAP CETTE SEMAINE</span>
@@ -721,16 +744,6 @@ function App() {
                 />
                 Voir les projets archivés
               </label>
-              {canCreate && (
-                <Templates
-                  onError={setError}
-                  onSaved={saved}
-                  onCreated={(id) => {
-                    setProjectId(id);
-                    setTab('gantt');
-                  }}
-                />
-              )}
               <div className="toolbar">
                 <div className="search-input">
                   <Search size={17} />
@@ -1296,7 +1309,13 @@ function ProjectCard({
   onOpen: () => void;
 }) {
   return (
-    <article className="project-card">
+    <article
+      className="project-card"
+      data-project-color={p.color}
+      onClick={(e) => {
+        if (!(e.target as Element).closest('button,a,input')) onOpen();
+      }}
+    >
       <div className="project-card-head">
         <span className={'project-emblem ' + p.color}>
           <ProjectIcon name={p.icon} size={24} />

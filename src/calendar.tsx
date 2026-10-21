@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ChevronLeft, ChevronRight, CalendarDays } from 'lucide-react';
+import { ChevronLeft, ChevronRight, CalendarDays, Plus } from 'lucide-react';
 import { api, type Task, today, shiftDate, displayDate, dayDiff } from './domain';
 import { type EventItem } from './modules';
 import { Modal } from './components';
@@ -7,10 +7,12 @@ export function Calendar({
   tasks: assigned,
   onTask,
   large = false,
+  onCreateEvent,
 }: {
   tasks: Task[];
   onTask: (t: Task) => void;
   large?: boolean;
+  onCreateEvent?: () => void;
 }) {
   const [anchor, setAnchor] = useState(today()),
     [view, setView] = useState('month');
@@ -68,6 +70,12 @@ export function Calendar({
           <span className="muted">Vos échéances, au même endroit</span>
         </div>
         <div className="calendar-controls">
+          {onCreateEvent && (
+            <button className="secondary" onClick={onCreateEvent}>
+              <Plus size={15} />
+              Nouvel événement
+            </button>
+          )}
           <div className="segmented">
             {[
               ['month', 'Mois'],
